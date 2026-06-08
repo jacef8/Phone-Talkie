@@ -142,6 +142,8 @@ async function handleSignal(msg) {
       currentRoom = msg.room;
       updateMembers(msg.room);
       addFeedItem(msg.peerName, 'join');
+      // Initiate WebRTC connection to the new peer
+      try { await createOffer(msg.peerId); } catch(e) { console.error('createOffer failed:', e); }
       break;
 
     case 'peer-left':
