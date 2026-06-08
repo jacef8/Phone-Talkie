@@ -144,15 +144,32 @@ async function handleSignal(msg) {
 
     case 'ptt-start':
       showSpeaking(msg.peerName, true);
-      // Start recording this peer's stream for replay
+      // Start recording incoming stream for replay
       if (streams.has(msg.fromId)) {
-        window._activeRecording = { peerId: msg.fromId, startTime: Date.now() };
+        const recStream = streams.get(msg.fromId);
+        const rec = recordStream(recStream, (blob) => {
+          if (blob) window._lastRecordingBlob = blob;
+        });
+        window._activeRecording = {
+          peerId: msg.fromId,
+          startTime: Date.now(),
+          recorder: rec,
+        };
       }
       break;
 
     case 'ptt-stop':
       showSpeaking(msg.peerName, false);
-      addFeedItem(msg.peerName, 'speak', msg.fromId);
+      // Stop recorder if active
+      if (window._activeRecording?.recorder) {
+        try { window._activeRecording.recorder.stop(); } catch(e) {}
+      }
+      // Small delay to let onstop fire before addFeedItem
+      setTimeout(() => {
+        addFeedItem(msg.peerName, 'speak', msg.fromId, window._lastRecordingBlob);
+        window._lastRecordingBlob = null;
+        window._activeRecording = null;
+      }, 300);
       break;
 
     case 'room-list':
@@ -186,7 +203,11 @@ async function getMic() {
 
 function releaseMic() {
   if (!localStream) return;
-  localStream.getTracks().forEach(t => t.stop());
+  // Disable tracks rather than stop — lets WebRTC renegotiate if needed
+  localStream.getTracks().forEach(t => {
+    t.enabled = false;
+    t.stop();
+  });
   localStream = null;
 }
 
@@ -261,20 +282,28 @@ function playRemoteStream(stream) {
 }
 
 // Record a stream and store blob against a message element
-function recordStream(stream, durationMs, onDone) {
-  if (!stream || !window.MediaRecorder) { onDone(null); return; }
+// Record a MediaStream for a given duration
+function recordStream(stream, onStop) {
+  if (!stream || !window.MediaRecorder) return null;
+  const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+    ? "audio/webm;codecs=opus"
+    : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
   const chunks = [];
   let rec;
   try {
-    rec = new MediaRecorder(stream);
-  } catch(e) { onDone(null); return; }
-  rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+    rec = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+  } catch(e) { console.error("MediaRecorder failed:", e); return null; }
+  rec.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
   rec.onstop = () => {
-    const blob = new Blob(chunks, { type: 'audio/webm' });
-    onDone(blob);
+    if (chunks.length > 0) {
+      const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+      onStop(blob);
+    } else {
+      onStop(null);
+    }
   };
-  rec.start();
-  setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, durationMs + 500);
+  try { rec.start(100); } catch(e) { return null; } // collect every 100ms
+  return rec;
 }
 
 // ── PTT ─────────────────────────────────
@@ -384,7 +413,7 @@ function updateMembers(room) {
     av.title = m.name;
     av.style.cursor = 'pointer';
     // Tap to show full name
-    av.addEventListener('click', () => showToast(m.name));
+    av.addEventListener('click', () => showMemberName(m.name));
     container.appendChild(av);
   });
   document.getElementById('room-member-count').textContent = allMembers.length;
@@ -412,7 +441,7 @@ function setWave(mode) {
   }
 }
 
-function addFeedItem(name, type, peerId) {
+function addFeedItem(name, type, peerId, blob) {
   const list   = document.getElementById('history-list');
   const count  = document.getElementById('hist-count');
   const labels = { speak: 'spoke', join: 'joined', leave: 'left' };
@@ -446,14 +475,9 @@ function addFeedItem(name, type, peerId) {
     item.addEventListener('click', () => playMessage(name, dur, item));
     list.appendChild(item);
 
-    // Attach recorded audio if available
-    if (peerId && streams.has(peerId) && window._activeRecording?.peerId === peerId) {
-      const recDur = Date.now() - (window._activeRecording.startTime || Date.now());
-      const stream = streams.get(peerId);
-      recordStream(stream, recDur, (blob) => {
-        if (blob) messageAudio.set(item, blob);
-      });
-      window._activeRecording = null;
+    // Attach recorded blob if available
+    if (blob) {
+      messageAudio.set(item, blob);
     }
 
     // Keep max 10
@@ -464,49 +488,47 @@ function addFeedItem(name, type, peerId) {
   }
 }
 
-// Store recorded audio blobs keyed by message element
-const messageAudio = new Map();
+// Audio recording: capture each incoming transmission
+const messageAudio = new Map(); // el → Blob
 
 function playMessage(name, dur, el) {
   if (transmitting) return;
 
   // Stop current playback
   if (playingEl) {
-    playingEl.classList.remove('playing');
+    playingEl.classList.remove("playing");
     clearTimeout(playTimer);
     if (window._currentAudio) {
       window._currentAudio.pause();
-      window._currentAudio.currentTime = 0;
       window._currentAudio = null;
     }
     const wasEl = playingEl;
     playingEl = null;
     setWave(null);
-    if (wasEl === el) return; // tapped same item = stop
+    if (wasEl === el) return;
   }
 
-  // Play the recorded audio if we have it
   const blob = messageAudio.get(el);
   if (blob) {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
+    audio.setAttribute("playsinline", "");
     window._currentAudio = audio;
     playingEl = el;
-    el.classList.add('playing');
-    setWave('rx');
-    document.getElementById('wave-status').textContent = name.toUpperCase();
-    document.getElementById('wave-status').className = 'wave-status rx';
-    audio.play();
+    el.classList.add("playing");
+    setWave("rx");
+    document.getElementById("wave-status").textContent = name.toUpperCase();
+    document.getElementById("wave-status").className = "wave-status rx";
+    audio.play().catch(console.error);
     audio.onended = () => {
-      el.classList.remove('playing');
+      el.classList.remove("playing");
       playingEl = null;
       window._currentAudio = null;
       setWave(null);
       URL.revokeObjectURL(url);
     };
   } else {
-    // No recording available — show indicator
-    showToast('No recording saved for this message');
+    showToast("Replay not available");
   }
 }
 
@@ -547,6 +569,24 @@ document.getElementById('name-input').addEventListener('input', () => {
 
 // ── TOAST ────────────────────────────────
 let toastTimer;
+function showMemberName(name) {
+  // Remove existing
+  document.getElementById('member-popup')?.remove();
+  const el = document.createElement('div');
+  el.id = 'member-popup';
+  el.textContent = name;
+  el.style.cssText = `
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:#141816; border:2px solid #39ff8a; color:#39ff8a;
+    font-family:'Bebas Neue',sans-serif; font-size:1.8rem; letter-spacing:4px;
+    padding:18px 32px; border-radius:16px; z-index:999;
+    box-shadow:0 0 30px rgba(57,255,138,0.2);
+    pointer-events:none;
+  `;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+}
+
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -648,13 +688,11 @@ function doModalJoin(code) {
     .catch(() => showToast('Microphone permission required'));
 }
 
-// ── RELEASE MIC ON PAGE HIDE/UNLOAD ────────
-document.addEventListener('visibilitychange', () => {
-  // Only release if not in a room
-  if (document.hidden && !currentRoom) releaseMic();
+// ── RELEASE MIC ON PAGE UNLOAD ────────
+// Only stop tracks when truly leaving — not on tab switch
+window.addEventListener('pagehide', () => {
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
 });
-window.addEventListener('pagehide', () => releaseMic());
-window.addEventListener('beforeunload', () => releaseMic());
 
 // ── INIT ─────────────────────────────────
 connectWS();
