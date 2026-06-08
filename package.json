@@ -1,8 +1,13 @@
 {
   "name": "breaker-server",
   "version": "1.0.0",
+  "description": "BREAKER walkie-talkie signaling server",
+  "main": "server.js",
   "scripts": {
-    "start": "npm install ws && node server.js"
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
   },
   "engines": {
     "node": ">=18.0.0"
