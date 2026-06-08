@@ -137,7 +137,12 @@ function makePeer(peerId) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
   pc.onicecandidate = ({ candidate }) => {
-    if (candidate) send({ type: 'ice-candidate', targetId: peerId, candidate });
+    if (candidate) {
+      showStatus('ICE cand: ' + (candidate.type || 'host'));
+      send({ type: 'ice-candidate', targetId: peerId, candidate });
+    } else {
+      showStatus('ICE gathering done');
+    }
   };
 
   pc.ontrack = ({ streams: [stream] }) => {
@@ -158,11 +163,19 @@ function makePeer(peerId) {
   pc.onconnectionstatechange = () => {
     const state = pc.connectionState;
     console.log('peer', peerId, state);
-    showStatus('Peer: ' + state);
+    showStatus('Peer: ' + state + ' | ICE: ' + pc.iceConnectionState);
   };
   pc.oniceconnectionstatechange = () => {
-    console.log('ICE', peerId, pc.iceConnectionState);
-    showStatus('ICE: ' + pc.iceConnectionState);
+    const s = pc.iceConnectionState;
+    console.log('ICE', peerId, s);
+    showStatus('ICE: ' + s);
+    if (s === 'failed') {
+      showStatus('ICE FAILED - trying restart');
+      pc.restartIce();
+    }
+  };
+  pc.onicegatheringstatechange = () => {
+    showStatus('Gathering: ' + pc.iceGatheringState);
   };
 
   if (localStream) {
