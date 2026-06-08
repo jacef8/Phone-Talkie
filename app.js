@@ -85,12 +85,10 @@ function connectWS() {
 
   ws.onmessage = async (event) => {
     let msg;
-    try { msg = JSON.parse(event.data); } catch(e) { dbg('Parse error: ' + e); return; }
-    dbg('MSG: ' + msg.type);
+    try { msg = JSON.parse(event.data); } catch(e) { return; }
     try {
       await handleSignal(msg);
     } catch(e) {
-      dbg('handleSignal error: ' + e.message);
       console.error('handleSignal error:', e);
     }
   };
@@ -114,12 +112,10 @@ async function handleSignal(msg) {
         window._wasInRoom = true;
         renderRoom(msg.room);
         showScreen('screen-room');
-        dbg('room-created OK');
-      } catch(e) { dbg('room-created err: ' + e.message); }
+      } catch(e) { }
       break;
 
     case 'room-joined':
-      dbg('room-joined received');
       try {
         myId = msg.myId || myId;
         try { saveRoomToStorage(msg.room); } catch(e) {}
@@ -127,9 +123,7 @@ async function handleSignal(msg) {
         window._wasInRoom = true;
         renderRoom(msg.room);
         showScreen('screen-room');
-        dbg('screen switched OK');
       } catch(e) {
-        dbg('room-joined error: ' + e.message);
       }
       if (msg.existingPeers) {
         for (const peerId of msg.existingPeers) {
@@ -200,7 +194,6 @@ async function handleSignal(msg) {
       break;
 
     case 'error':
-      dbg('ERROR: ' + msg.message);
       if (msg.message === 'Room not found') {
         // BREAKER room should always exist — server may be restarting, retry
         console.log('Room not found, retrying in 2s...');
@@ -388,23 +381,8 @@ function recordStream(stream, onStop) {
 function startTx(e) {
   if (e) e.preventDefault();
   if (!currentRoom) return;
-
-  // Get mic on first press if not already acquired
   if (!localStream) {
-    getMic().then(() => {
-      // Re-add tracks to all peer connections
-      peers.forEach((pc) => {
-        if (localStream) {
-          localStream.getTracks().forEach(track => {
-            try { pc.addTrack(track, localStream); } catch(err) {}
-          });
-        }
-      });
-      doStartTx();
-    }).catch(e => {
-      console.error('Mic error:', e);
-      showToast('Tap Allow when browser asks for microphone');
-    });
+    showToast('Microphone not ready');
     return;
   }
   doStartTx();
@@ -440,6 +418,8 @@ function stopTx() {
   }
 
   send({ type: 'ptt-stop' });
+  // Add your own transmission to the feed
+  addFeedItem(myName || 'You', 'speak', null, null);
 
   document.getElementById('ptt-btn').classList.remove('tx');
   document.getElementById('ptt-outer').classList.remove('tx');
@@ -451,22 +431,23 @@ function stopTx() {
 // ── JOIN MAIN ROOM ──────────────────────────
 function joinMain() {
   const name = document.getElementById('name-input').value.trim();
-  dbg('JOIN tapped. name=' + name + ' ws=' + (ws ? ws.readyState : 'null'));
   if (!name) {
     document.getElementById('name-input').focus();
     showToast('Enter your name first');
     return;
   }
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    dbg('WS not open: ' + (ws ? ws.readyState : 'no ws'));
     showToast('Not connected — state: ' + (ws ? ws.readyState : 'none'));
     return;
   }
   myName = name;
   localStorage.setItem('breaker-name', name);
-  dbg('Sending join-room BREAKER');
-  send({ type: 'join-room', code: 'BREAKER', peerName: name });
-  dbg('Sent.');
+  // Get mic before joining so WebRTC tracks are ready
+  getMic().then(() => {
+    send({ type: 'join-room', code: 'BREAKER', peerName: name });
+  }).catch(() => {
+    send({ type: 'join-room', code: 'BREAKER', peerName: name });
+  });
 }
 
 // ── ROOM ACTIONS ─────────────────────────
@@ -718,16 +699,6 @@ function showMemberName(name) {
   `;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 2000);
-}
-
-// ── DEBUG ─────────────────────────────────
-function dbg(msg) {
-  console.log('[DBG]', msg);
-  const el = document.getElementById('debug-log');
-  if (el) {
-    el.textContent = msg;
-    el.style.display = 'block';
-  }
 }
 
 function showToast(msg) {
