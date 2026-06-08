@@ -211,29 +211,40 @@ async function handleSignal(msg) {
 }
 
 // ── WEBRTC ───────────────────────────────
+let audioContext = null;
+let gainNode = null;
+let processedStream = null;
+
 async function getMic() {
   if (localStream) return localStream;
   console.log('[MIC] acquiring mic...');
-  localStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
+  
+  const rawStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     video: false
   });
-  // Disable immediately so no mic indicator shows
-  localStream.getAudioTracks().forEach(t => {
-    t.enabled = false;
-    console.log('[MIC] track disabled:', t.label);
-  });
-  console.log('[MIC] mic ready, tracks disabled');
+  
+  // Route through GainNode so we can mute without stopping the track
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(rawStream);
+  gainNode = audioContext.createGain();
+  gainNode.gain.value = 0; // silent until PTT pressed
+  const dest = audioContext.createMediaStreamDestination();
+  source.connect(gainNode);
+  gainNode.connect(dest);
+  
+  // processedStream goes into WebRTC, rawStream stays for track reference
+  localStream = dest.stream;
+  console.log('[MIC] mic ready with GainNode (gain=0)');
   return localStream;
 }
 
 function releaseMic() {
   if (!localStream) return;
   console.log('[MIC] releasing mic');
+  if (gainNode) { gainNode.disconnect(); gainNode = null; }
+  if (audioContext) { audioContext.close(); audioContext = null; }
+  if (processedStream) { processedStream.getTracks().forEach(t => t.stop()); processedStream = null; }
   localStream.getTracks().forEach(t => t.stop());
   localStream = null;
 }
@@ -354,53 +365,22 @@ function playRemoteStream(stream, peerId) {
 }
 
 // Record a stream and store blob against a message element
-// Record a MediaStream for a given duration
-function recordStream(stream, onStop) {
-  if (!stream || !window.MediaRecorder) return null;
-  const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-    ? "audio/webm;codecs=opus"
-    : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
-  const chunks = [];
-  let rec;
-  try {
-    rec = new MediaRecorder(stream, mimeType ? { mimeType } : {});
-  } catch(e) { console.error("MediaRecorder failed:", e); return null; }
-  rec.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-  rec.onstop = () => {
-    if (chunks.length > 0) {
-      const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-      onStop(blob);
-    } else {
-      onStop(null);
-    }
-  };
-  try { rec.start(100); } catch(e) { return null; } // collect every 100ms
-  return rec;
-}
-
 // ── PTT ─────────────────────────────────
 function startTx(e) {
   if (e) e.preventDefault();
   if (!currentRoom) return;
-
-  if (!localStream) {
-    showToast('Microphone not ready — try leaving and rejoining');
-    return;
-  }
-
-  // Just enable the existing tracks that are already in the peer connection
-  localStream.getAudioTracks().forEach(t => {
-    t.enabled = true;
-    console.log('[AUDIO] track enabled:', t.label, 'enabled:', t.enabled);
-  });
-  console.log('[AUDIO] tracks enabled, calling doStartTx');
+  if (!localStream) { showToast('Microphone not ready'); return; }
   doStartTx();
 }
 
 function doStartTx() {
   if (!currentRoom) return;
   transmitting = true;
-  // Tracks already enabled in startTx
+  // Open the gain to send audio
+  if (gainNode) {
+    gainNode.gain.value = 1;
+    console.log('[AUDIO] gain=1, transmitting');
+  }
 
   send({ type: 'ptt-start' });
 
@@ -417,16 +397,14 @@ function stopTx() {
   if (!transmitting) return;
   transmitting = false;
 
-  // Disable tracks (don't stop - we need them for next PTT)
-  if (localStream) {
-    localStream.getAudioTracks().forEach(t => {
-      t.enabled = false;
-      console.log('[AUDIO] track disabled after PTT:', t.label);
-    });
+  // Silence the audio via gain node
+  if (gainNode) {
+    gainNode.gain.value = 0;
+    console.log('[AUDIO] gain=0, muted');
   }
 
   send({ type: 'ptt-stop' });
-  addFeedItem(myName || 'You', 'speak', null, null);
+  addFeedItem(myName || 'You', 'speak');
 
   document.getElementById('ptt-btn').classList.remove('tx');
   document.getElementById('ptt-outer').classList.remove('tx');
@@ -555,95 +533,9 @@ function setWave(mode) {
   }
 }
 
-function addFeedItem(name, type, peerId, blob) {
-  const list   = document.getElementById('history-list');
-  const count  = document.getElementById('hist-count');
-  const labels = { speak: 'spoke', join: 'joined', leave: 'left' };
-
-  // Record message for replay (speak only)
-  if (type === 'speak') {
-    const item    = document.createElement('div');
-    item.className = 'msg-item';
-    const dur     = Math.floor(Math.random() * 6) + 2; // placeholder until real duration tracking
-    const bars    = Array.from({ length: 18 }, () => {
-      const h = Math.floor(Math.random() * 11) + 3;
-      return `<div class="mwbar" style="height:${h}px"></div>`;
-    }).join('');
-    item.dataset.dur = dur;
-    item.innerHTML = `
-      <div class="msg-avatar">${name[0].toUpperCase()}</div>
-      <div class="msg-body">
-        <span class="msg-name">${name}</span>
-        <div class="msg-meta" style="display:flex;align-items:center;gap:6px;">
-          <div class="msg-wave">${bars}</div>
-          <span>${dur}s</span>
-        </div>
-      </div>
-      <div class="msg-right">
-        <span class="msg-time">just now</span>
-        <div class="play-icon">
-          <svg viewBox="0 0 10 10"><path d="M2 1.5l6 3.5-6 3.5z"/></svg>
-        </div>
-      </div>
-    `;
-    item.addEventListener('click', () => playMessage(name, dur, item));
-    list.appendChild(item);
-
-    // Attach recorded blob if available
-    if (blob) {
-      messageAudio.set(item, blob);
-    }
-
-    // Keep max 10
-    const items = list.querySelectorAll('.msg-item');
-    if (items.length > 10) items[0].remove();
-    count.textContent = `${list.querySelectorAll('.msg-item').length} / 10`;
-    list.scrollTop = list.scrollHeight;
-  }
-}
-
-// Audio recording: capture each incoming transmission
-const messageAudio = new Map(); // el → Blob
-
-function playMessage(name, dur, el) {
-  if (transmitting) return;
-
-  // Stop current playback
-  if (playingEl) {
-    playingEl.classList.remove("playing");
-    clearTimeout(playTimer);
-    if (window._currentAudio) {
-      window._currentAudio.pause();
-      window._currentAudio = null;
-    }
-    const wasEl = playingEl;
-    playingEl = null;
-    setWave(null);
-    if (wasEl === el) return;
-  }
-
-  const blob = messageAudio.get(el);
-  if (blob) {
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.setAttribute("playsinline", "");
-    window._currentAudio = audio;
-    playingEl = el;
-    el.classList.add("playing");
-    setWave("rx");
-    document.getElementById("wave-status").textContent = name.toUpperCase();
-    document.getElementById("wave-status").className = "wave-status rx";
-    audio.play().catch(console.error);
-    audio.onended = () => {
-      el.classList.remove("playing");
-      playingEl = null;
-      window._currentAudio = null;
-      setWave(null);
-      URL.revokeObjectURL(url);
-    };
-  } else {
-    showToast("Replay not available");
-  }
+function addFeedItem(name, type) {
+  // Just log to console - UI removed
+  console.log('[FEED]', name, type);
 }
 
 function updateConnectionStatus(connected) {
@@ -836,12 +728,12 @@ function loadLastRoom() {
 // ── MIC LIFECYCLE ────────────────────────
 // Release mic whenever page is hidden (user switches apps)
 // Re-acquire when they come back to the room
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden && !currentRoom) {
-    releaseMic();
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) {
+    // Silence gain but don't release — avoids mic indicator flicker
+    if (gainNode) gainNode.gain.value = 0;
+    if (transmitting) stopTx();
   }
-  // When in a room, tracks are disabled between PTT presses
-  // so no mic indicator should show
 });
 
 window.addEventListener('pagehide', () => {
