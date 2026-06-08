@@ -221,33 +221,13 @@ async function getMic() {
     },
     video: false
   });
-  // Disable tracks immediately — only enable when PTT held
-  // This prevents Android from showing the "active call" indicator
-  localStream.getAudioTracks().forEach(t => {
-    t.enabled = false;
-  });
   return localStream;
 }
 
 function releaseMic() {
   if (!localStream) return;
-  console.log('Releasing mic...');
-  localStream.getTracks().forEach(t => {
-    t.enabled = false;
-    t.stop(); // This is what actually releases the OS-level mic indicator
-  });
+  localStream.getTracks().forEach(t => t.stop());
   localStream = null;
-  // Also close all peer connections to fully release audio pipeline
-  peers.forEach((pc, id) => {
-    try { pc.close(); } catch(e) {}
-  });
-  peers.clear();
-  streams.clear();
-  audioElements.forEach(audio => {
-    audio.srcObject = null;
-    audio.remove();
-  });
-  audioElements.clear();
 }
 
 function createPeerConnection(peerId) {
@@ -280,19 +260,24 @@ function createPeerConnection(peerId) {
 }
 
 async function createOffer(peerId) {
-  // Don't require mic for signaling — add track only if mic available
-  const pc = createPeerConnection(peerId);
+  await getMic();
+  const pc = createPeerConnection(peerId); // adds localStream tracks
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   send({ type: 'offer', targetId: peerId, sdp: pc.localDescription });
+  // Release mic immediately — will be re-acquired on PTT press
+  releaseMic();
 }
 
 async function handleOffer(msg) {
-  const pc = createPeerConnection(msg.fromId);
+  await getMic();
+  const pc = createPeerConnection(msg.fromId); // adds localStream tracks
   await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   send({ type: 'answer', targetId: msg.fromId, sdp: pc.localDescription });
+  // Release mic immediately — will be re-acquired on PTT press
+  releaseMic();
 }
 
 async function handleAnswer(msg) {
@@ -381,18 +366,31 @@ function recordStream(stream, onStop) {
 function startTx(e) {
   if (e) e.preventDefault();
   if (!currentRoom) return;
-  if (!localStream) {
-    showToast('Microphone not ready');
-    return;
-  }
-  doStartTx();
+
+  getMic().then(() => {
+    // Replace tracks in all existing peer connections
+    const trackPromises = [];
+    peers.forEach((pc) => {
+      if (localStream) {
+        pc.getSenders().forEach(sender => {
+          if (sender.track && sender.track.kind === 'audio') {
+            const newTrack = localStream.getAudioTracks()[0];
+            if (newTrack) trackPromises.push(sender.replaceTrack(newTrack));
+          }
+        });
+      }
+    });
+    Promise.all(trackPromises).then(() => doStartTx()).catch(() => doStartTx());
+  }).catch(e => {
+    console.error('Mic error:', e);
+    showToast('Tap Allow when browser asks for microphone');
+  });
 }
 
 function doStartTx() {
   if (!currentRoom) return;
   transmitting = true;
 
-  // Enable mic tracks
   if (localStream) {
     localStream.getAudioTracks().forEach(t => t.enabled = true);
   }
@@ -412,13 +410,13 @@ function stopTx() {
   if (!transmitting) return;
   transmitting = false;
 
-  // Mute mic again
+  // Fully stop and release mic after PTT — clears the mic indicator
   if (localStream) {
-    localStream.getAudioTracks().forEach(t => t.enabled = false);
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
   }
 
   send({ type: 'ptt-stop' });
-  // Add your own transmission to the feed
   addFeedItem(myName || 'You', 'speak', null, null);
 
   document.getElementById('ptt-btn').classList.remove('tx');
@@ -442,12 +440,7 @@ function joinMain() {
   }
   myName = name;
   localStorage.setItem('breaker-name', name);
-  // Get mic before joining so WebRTC tracks are ready
-  getMic().then(() => {
-    send({ type: 'join-room', code: 'BREAKER', peerName: name });
-  }).catch(() => {
-    send({ type: 'join-room', code: 'BREAKER', peerName: name });
-  });
+  send({ type: 'join-room', code: 'BREAKER', peerName: name });
 }
 
 // ── ROOM ACTIONS ─────────────────────────
@@ -836,14 +829,8 @@ function loadLastRoom() {
 // Re-acquire when they come back to the room
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    // Only release mic if not actively in a room
-    if (!currentRoom && localStream) {
-      localStream.getTracks().forEach(t => t.stop());
-      localStream = null;
-      console.log('Mic released — page hidden, not in room');
-    }
+    releaseMic(); // Always release mic when switching apps
   }
-  // Don't re-acquire here — user will tap PTT which triggers getMic()
 });
 
 window.addEventListener('pagehide', () => {
