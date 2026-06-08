@@ -15,11 +15,29 @@ const MIME = {
   '.css':  'text/css',
 };
 
-// Static file base — always use /app on Railway, fallback to __dirname
-const BASE = fs.existsSync('/app/index.html') ? '/app'
-           : fs.existsSync(path.join(__dirname, 'index.html')) ? __dirname
-           : process.cwd();
+// Find where index.html actually lives
+function findBase() {
+  const candidates = [
+    '/app',
+    path.join(__dirname),
+    path.join(process.cwd()),
+    path.join(__dirname, '..'),
+    path.join(process.cwd(), '..'),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'index.html'))) {
+      console.log(`Found index.html in: ${dir}`);
+      return dir;
+    }
+  }
+  // Log all files in /app and cwd for debugging
+  try { console.log('Files in /app:', fs.readdirSync('/app').join(', ')); } catch(e) {}
+  try { console.log('Files in cwd:', fs.readdirSync(process.cwd()).join(', ')); } catch(e) {}
+  try { console.log('Files in __dirname:', fs.readdirSync(__dirname).join(', ')); } catch(e) {}
+  return process.cwd(); // fallback
+}
 
+const BASE = findBase();
 console.log(`Serving static files from: ${BASE}`);
 
 // HTTP server — serves static files
