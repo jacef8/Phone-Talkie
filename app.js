@@ -569,14 +569,14 @@ function renderServerRooms(rooms) {
   allRooms.forEach(room => {
     const el = document.createElement('div');
     el.className = 'room-item';
-    el.innerHTML = \`
-      <div class="room-icon">\${room.name[0].toUpperCase()}</div>
+    el.innerHTML = `
+      <div class="room-icon">${room.name[0].toUpperCase()}</div>
       <div class="room-body">
-        <span class="room-name">\${room.name}</span>
-        <span class="room-meta"><span class="dot">●</span>\${room.memberCount || room.members?.length || 0} members</span>
+        <span class="room-name">${room.name}</span>
+        <span class="room-meta"><span class="dot">●</span>${room.memberCount || room.members?.length || 0} members</span>
       </div>
-      <div class="code-badge">\${room.code}</div>
-    \`;
+      <div class="code-badge">${room.code}</div>
+    `;
     el.addEventListener('click', () => {
       const name = document.getElementById('name-input').value.trim();
       if (!name) { showToast('Enter your name first'); document.getElementById('name-input').focus(); return; }
