@@ -4,6 +4,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
+const ROOMS_FILE = path.join(process.cwd(), 'rooms.json');
 
 const MIME = {
   '.html': 'text/html',
@@ -59,6 +60,39 @@ const wss = new WebSocketServer({ server });
 
 // rooms: { roomCode: { id, name, peers: Map<peerId, ws> } }
 const rooms = new Map();
+
+// ── PERSISTENCE ──────────────────────────
+function saveRooms() {
+  try {
+    const data = {};
+    rooms.forEach((room, code) => {
+      data[code] = { code: room.code, name: room.name };
+    });
+    fs.writeFileSync(ROOMS_FILE, JSON.stringify(data, null, 2));
+  } catch(e) {
+    console.error('Failed to save rooms:', e.message);
+  }
+}
+
+function loadRooms() {
+  try {
+    if (!fs.existsSync(ROOMS_FILE)) return;
+    const data = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8'));
+    Object.values(data).forEach(r => {
+      rooms.set(r.code, {
+        code: r.code,
+        name: r.name,
+        peers: new Map(), // peers reconnect fresh
+      });
+    });
+    console.log(`Loaded ${rooms.size} rooms from disk`);
+  } catch(e) {
+    console.error('Failed to load rooms:', e.message);
+  }
+}
+
+// Load rooms on startup
+loadRooms();
 
 function genCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -128,6 +162,7 @@ wss.on('connection', (ws) => {
 
         ws.send(JSON.stringify({ type: 'room-created', room: roomInfo(room, ws.peerId), myId: ws.peerId }));
         console.log(`Room created: ${code} "${room.name}"`);
+        saveRooms();
         broadcastRoomList();
         break;
       }
@@ -220,6 +255,7 @@ function leaveRoom(ws) {
   if (room.peers.size === 0) {
     rooms.delete(room.code);
     console.log(`Room deleted: ${room.code}`);
+    saveRooms();
     broadcastRoomList();
   } else {
     broadcast(room, {
