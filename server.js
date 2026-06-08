@@ -238,7 +238,10 @@ wss.on('connection', (ws) => {
       case 'answer':
       case 'ice-candidate': {
         const room = rooms.get(ws.roomCode);
-        if (!room) return;
+        if (!room) {
+          console.log(`RELAY FAIL: ${msg.type} from ${ws.peerId} - no room (roomCode=${ws.roomCode})`);
+          return;
+        }
         const target = room.peers.get(msg.targetId);
         if (target && target.readyState === 1) {
           target.send(JSON.stringify({
@@ -246,6 +249,9 @@ wss.on('connection', (ws) => {
             fromId: ws.peerId,
             fromName: ws.peerName,
           }));
+          console.log(`RELAY OK: ${msg.type} from ${ws.peerId.substring(0,4)} to ${msg.targetId.substring(0,4)}`);
+        } else {
+          console.log(`RELAY FAIL: ${msg.type} target ${msg.targetId} not found or not open`);
         }
         break;
       }
