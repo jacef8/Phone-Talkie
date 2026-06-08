@@ -65,17 +65,15 @@ function connectWS() {
         window._wasInRoom = true;
         renderRoom(msg.room);
         showScreen('screen-room');
-        if (msg.existingPeers) {
-          for (const pid of msg.existingPeers) {
-            await createOffer(pid);
-          }
-        }
+        showStatus('Joined room, waiting for peers to connect...');
+        // Do NOT call createOffer here — existing peers will offer to us via peer-joined
         break;
 
       case 'peer-joined':
         currentRoom = msg.room;
         updateMembers(msg.room);
         showToast(msg.peerName + ' joined');
+        showStatus('New peer joined, creating offer...');
         await createOffer(msg.peerId);
         break;
 
