@@ -23,6 +23,7 @@ let transmitting = false;
 let localStream = null;
 const peers = new Map();
 const audioEls = new Map();
+const iceCandidateQueue = new Map(); // peerId → [candidates]
 
 // ── WEBSOCKET ──
 let reconnectDelay = 2000;
@@ -198,19 +199,35 @@ async function handleOffer(msg) {
   await getMic();
   const pc = makePeer(msg.fromId);
   await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+  await flushIceCandidates(msg.fromId);
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   send({ type: 'answer', targetId: msg.fromId, sdp: pc.localDescription });
 }
 
 async function handleAnswer(msg) {
+  showStatus('Got answer from ' + msg.fromId.substring(0,4));
   const pc = peers.get(msg.fromId);
-  if (pc) await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+  if (pc) {
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    showStatus('Answer set, state: ' + pc.signalingState);
+  } else {
+    showStatus('No peer for answer from ' + msg.fromId.substring(0,4));
+  }
 }
 
 async function handleIce(msg) {
   const pc = peers.get(msg.fromId);
-  if (pc) await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+  if (pc) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      showStatus('Added ICE from ' + msg.fromId.substring(0,4) + ' sig:' + pc.signalingState);
+    } catch(e) {
+      showStatus('ICE add error: ' + e.message);
+    }
+  } else {
+    showStatus('No peer for ICE from ' + msg.fromId.substring(0,4) + ' peers:' + peers.size);
+  }
 }
 
 function closePeer(peerId) {
