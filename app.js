@@ -26,8 +26,9 @@ let playTimer   = null;
 let playingEl   = null;
 
 // WebRTC: one RTCPeerConnection per remote peer
-const peers     = new Map(); // peerId → RTCPeerConnection
-const streams   = new Map(); // peerId → MediaStream
+const peers       = new Map(); // peerId → RTCPeerConnection
+const streams     = new Map(); // peerId → MediaStream
+const audioElements = new Map(); // peerId → HTMLAudioElement
 
 // Local mic stream
 let localStream = null;
@@ -203,12 +204,23 @@ async function getMic() {
 
 function releaseMic() {
   if (!localStream) return;
-  // Disable tracks rather than stop — lets WebRTC renegotiate if needed
+  console.log('Releasing mic...');
   localStream.getTracks().forEach(t => {
     t.enabled = false;
-    t.stop();
+    t.stop(); // This is what actually releases the OS-level mic indicator
   });
   localStream = null;
+  // Also close all peer connections to fully release audio pipeline
+  peers.forEach((pc, id) => {
+    try { pc.close(); } catch(e) {}
+  });
+  peers.clear();
+  streams.clear();
+  audioElements.forEach(audio => {
+    audio.srcObject = null;
+    audio.remove();
+  });
+  audioElements.clear();
 }
 
 function createPeerConnection(peerId) {
@@ -222,7 +234,7 @@ function createPeerConnection(peerId) {
 
   pc.ontrack = ({ streams: [stream] }) => {
     streams.set(peerId, stream);
-    playRemoteStream(stream);
+    playRemoteStream(stream, peerId);
   };
 
   pc.onconnectionstatechange = () => {
@@ -269,16 +281,47 @@ function closePeer(peerId) {
   const pc = peers.get(peerId);
   if (pc) { pc.close(); peers.delete(peerId); }
   streams.delete(peerId);
+  // Remove and clean up audio element
+  if (audioElements.has(peerId)) {
+    const audio = audioElements.get(peerId);
+    audio.srcObject = null;
+    audio.remove();
+    audioElements.delete(peerId);
+  }
 }
 
-function playRemoteStream(stream) {
-  const audio = new Audio();
+function playRemoteStream(stream, peerId) {
+  // Remove any existing audio element for this peer
+  if (audioElements.has(peerId)) {
+    const old = audioElements.get(peerId);
+    old.srcObject = null;
+    old.remove();
+    audioElements.delete(peerId);
+  }
+
+  const audio = document.createElement('audio');
   audio.srcObject = stream;
   audio.autoplay = true;
-  // Required on iOS to play without user gesture
   audio.setAttribute('playsinline', '');
+  audio.setAttribute('webkit-playsinline', '');
+  audio.volume = 1.0;
+  audio.muted = false;
+  // Must be in DOM to survive garbage collection
+  audio.style.display = 'none';
   document.body.appendChild(audio);
-  audio.play().catch(e => console.error('Audio play failed:', e));
+
+  if (peerId) audioElements.set(peerId, audio);
+
+  // Some browsers need an explicit play() call
+  const playPromise = audio.play();
+  if (playPromise) {
+    playPromise.catch(e => {
+      console.error('Audio play failed:', e);
+      // Retry on next user interaction
+      document.addEventListener('click', () => audio.play().catch(console.error), { once: true });
+      document.addEventListener('touchstart', () => audio.play().catch(console.error), { once: true });
+    });
+  }
 }
 
 // Record a stream and store blob against a message element
@@ -367,9 +410,8 @@ async function joinByCode() {
 
 function leaveRoom() {
   send({ type: 'leave-room' });
-  peers.forEach((pc, id) => closePeer(id));
   currentRoom = null;
-  releaseMic();
+  releaseMic(); // stops all tracks and closes all peers
   setWave(null);
   showScreen('screen-rooms');
 }
@@ -689,9 +731,14 @@ function doModalJoin(code) {
 }
 
 // ── RELEASE MIC ON PAGE UNLOAD ────────
-// Only stop tracks when truly leaving — not on tab switch
-window.addEventListener('pagehide', () => {
-  if (localStream) localStream.getTracks().forEach(t => t.stop());
+window.addEventListener('pagehide', releaseMic);
+window.addEventListener('beforeunload', releaseMic);
+// Also release if user navigates away
+document.addEventListener('visibilitychange', () => {
+  // Only release mic if NOT in a room and page is hidden
+  if (document.hidden && !currentRoom && localStream) {
+    releaseMic();
+  }
 });
 
 // ── INIT ─────────────────────────────────
