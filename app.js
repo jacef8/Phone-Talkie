@@ -250,11 +250,14 @@ function closePeer(peerId) {
   streams.delete(peerId);
 }
 
-function playRemoteStream(stream, peerId) {
+function playRemoteStream(stream) {
   const audio = new Audio();
   audio.srcObject = stream;
   audio.autoplay = true;
-  audio.play().catch(console.error);
+  // Required on iOS to play without user gesture
+  audio.setAttribute('playsinline', '');
+  document.body.appendChild(audio);
+  audio.play().catch(e => console.error('Audio play failed:', e));
 }
 
 // Record a stream and store blob against a message element
@@ -367,12 +370,23 @@ function renderRoom(room) {
 }
 
 function updateMembers(room) {
-  const selfLetter = (document.getElementById('name-input').value.trim()[0] || 'J').toUpperCase();
-  const allMembers = [{ name: myName, initial: selfLetter }, ...room.members.filter(m => m.id !== myId)];
-  const container  = document.getElementById('room-avatars');
-  container.innerHTML = allMembers.slice(0, 6).map(m =>
-    `<div class="avatar">${(m.name[0] || '?').toUpperCase()}</div>`
-  ).join('');
+  const selfLetter = (document.getElementById('name-input').value.trim()[0] || '?').toUpperCase();
+  const allMembers = [
+    { name: myName || 'You', initial: selfLetter },
+    ...room.members.filter(m => m.id !== myId)
+  ];
+  const container = document.getElementById('room-avatars');
+  container.innerHTML = '';
+  allMembers.slice(0, 6).forEach(m => {
+    const av = document.createElement('div');
+    av.className = 'avatar';
+    av.textContent = (m.name[0] || '?').toUpperCase();
+    av.title = m.name;
+    av.style.cursor = 'pointer';
+    // Tap to show full name
+    av.addEventListener('click', () => showToast(m.name));
+    container.appendChild(av);
+  });
   document.getElementById('room-member-count').textContent = allMembers.length;
 }
 
@@ -633,6 +647,14 @@ function doModalJoin(code) {
     .then(() => send({ type: 'join-room', code, peerName: name }))
     .catch(() => showToast('Microphone permission required'));
 }
+
+// ── RELEASE MIC ON PAGE HIDE/UNLOAD ────────
+document.addEventListener('visibilitychange', () => {
+  // Only release if not in a room
+  if (document.hidden && !currentRoom) releaseMic();
+});
+window.addEventListener('pagehide', () => releaseMic());
+window.addEventListener('beforeunload', () => releaseMic());
 
 // ── INIT ─────────────────────────────────
 connectWS();
