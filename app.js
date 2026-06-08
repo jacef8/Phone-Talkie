@@ -1,314 +1,436 @@
-const http = require('http');
-const fs   = require('fs');
-const path = require('path');
-const { WebSocketServer } = require('ws');
+// ─────────────────────────────────────────
+//  BREAKER — app.js (simplified)
+// ─────────────────────────────────────────
 
-const PORT = process.env.PORT || 3000;
-const ROOMS_FILE = path.join(process.cwd(), 'rooms.json');
+const SERVER_URL = window.location.hostname === 'localhost'
+  ? 'ws://localhost:3000'
+  : 'wss://phone-talkie.onrender.com';
 
-const MIME = {
-  '.html': 'text/html',
-  '.js':   'text/javascript',
-  '.json': 'application/json',
-  '.png':  'image/png',
-  '.ico':  'image/x-icon',
-  '.css':  'text/css',
-};
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'turn:standard.relay.metered.ca:80', username: '3b799207f546e5350db66ad7', credential: 'EYXVPgix8rflMTdv' },
+  { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: '3b799207f546e5350db66ad7', credential: 'EYXVPgix8rflMTdv' },
+  { urls: 'turn:standard.relay.metered.ca:443', username: '3b799207f546e5350db66ad7', credential: 'EYXVPgix8rflMTdv' },
+  { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: '3b799207f546e5350db66ad7', credential: 'EYXVPgix8rflMTdv' },
+];
 
-// Find where index.html actually lives
-function findBase() {
-  const candidates = [
-    '/app',
-    path.join(__dirname),
-    path.join(process.cwd()),
-    path.join(__dirname, '..'),
-    path.join(process.cwd(), '..'),
-  ];
-  for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, 'index.html'))) {
-      console.log(`Found index.html in: ${dir}`);
-      return dir;
+let ws = null;
+let myId = null;
+let myName = '';
+let currentRoom = null;
+let transmitting = false;
+let localStream = null;
+const peers = new Map();
+const audioEls = new Map();
+const iceCandidateQueue = new Map(); // peerId → [candidates]
+
+// ── WEBSOCKET ──
+let reconnectDelay = 2000;
+let wasConnected = false;
+
+function connectWS() {
+  ws = new WebSocket(SERVER_URL);
+
+  ws.onopen = () => {
+    wasConnected = true;
+    reconnectDelay = 2000;
+    updateStatus(true);
+    // Auto-rejoin if we were in a room
+    const savedName = localStorage.getItem('breaker-name');
+    if (savedName && currentRoom) {
+      myName = savedName;
+      send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
     }
-  }
-  // Log all files in /app and cwd for debugging
-  try { console.log('Files in /app:', fs.readdirSync('/app').join(', ')); } catch(e) {}
-  try { console.log('Files in cwd:', fs.readdirSync(process.cwd()).join(', ')); } catch(e) {}
-  try { console.log('Files in __dirname:', fs.readdirSync(__dirname).join(', ')); } catch(e) {}
-  return process.cwd(); // fallback
-}
+  };
 
-const BASE = findBase();
-console.log(`Serving static files from: ${BASE}`);
+  ws.onclose = () => {
+    updateStatus(false);
+    setTimeout(connectWS, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
+  };
 
-// HTTP server — serves static files
-const server = http.createServer((req, res) => {
-  const urlPath = req.url.split('?')[0];
-  const fileName = urlPath === '/' ? 'index.html' : urlPath.replace(/^\//, '');
-  const filePath = path.join(BASE, fileName);
-  const ext = path.extname(filePath);
-  const contentType = MIME[ext] || 'text/plain';
+  ws.onerror = () => {};
 
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      // Fall back to index.html for any unknown route
-      fs.readFile(path.join(BASE, 'index.html'), (err2, data2) => {
-        if (err2) {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end(`Not found. BASE=${BASE}, file=${filePath}`);
-          return;
+  ws.onmessage = async (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    console.log('MSG:', msg.type);
+
+    switch (msg.type) {
+      case 'room-created':
+      case 'room-joined':
+        myId = msg.myId || myId;
+        currentRoom = msg.room;
+        window._wasInRoom = true;
+        renderRoom(msg.room);
+        showScreen('screen-room');
+        showStatus('Joined room, waiting for peers to connect...');
+        // Do NOT call createOffer here — existing peers will offer to us via peer-joined
+        break;
+
+      case 'peer-joined':
+        currentRoom = msg.room;
+        updateMembers(msg.room);
+        showToast(msg.peerName + ' joined');
+        showStatus('New peer joined, creating offer...');
+        await createOffer(msg.peerId);
+        break;
+
+      case 'peer-left':
+        currentRoom = msg.room;
+        updateMembers(msg.room);
+        showToast(msg.peerName + ' left');
+        closePeer(msg.peerId);
+        break;
+
+      case 'offer':
+        await handleOffer(msg);
+        break;
+
+      case 'answer':
+        await handleAnswer(msg);
+        break;
+
+      case 'ice-candidate':
+        await handleIce(msg);
+        break;
+
+      case 'ptt-start':
+        showSpeaking(msg.peerName, true);
+        break;
+
+      case 'ptt-stop':
+        showSpeaking(msg.peerName, false);
+        break;
+
+      case 'room-list':
+        // single room app, ignore
+        break;
+
+      case 'error':
+        if (msg.message === 'Room not found') {
+          setTimeout(() => {
+            const n = localStorage.getItem('breaker-name');
+            if (n && ws?.readyState === WebSocket.OPEN)
+              send({ type: 'join-room', code: 'BREAKER', peerName: n });
+          }, 1000);
         }
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(data2);
-      });
-      return;
+        break;
     }
-    res.writeHead(200, { 'Content-Type': contentType });
-    res.end(data);
-  });
-});
-
-const wss = new WebSocketServer({ server });
-
-// rooms: { roomCode: { id, name, peers: Map<peerId, ws> } }
-const rooms = new Map();
-
-// ── PERSISTENCE ──────────────────────────
-function saveRooms() {
-  try {
-    const data = {};
-    rooms.forEach((room, code) => {
-      data[code] = { code: room.code, name: room.name };
-    });
-    fs.writeFileSync(ROOMS_FILE, JSON.stringify(data, null, 2));
-  } catch(e) {
-    console.error('Failed to save rooms:', e.message);
-  }
-}
-
-function loadRooms() {
-  try {
-    if (!fs.existsSync(ROOMS_FILE)) return;
-    const data = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8'));
-    Object.values(data).forEach(r => {
-      rooms.set(r.code, {
-        code: r.code,
-        name: r.name,
-        peers: new Map(), // peers reconnect fresh
-      });
-    });
-    console.log(`Loaded ${rooms.size} rooms from disk`);
-  } catch(e) {
-    console.error('Failed to load rooms:', e.message);
-  }
-}
-
-// Load rooms on startup
-loadRooms();
-
-// Always ensure the permanent room exists
-const PERMANENT_ROOM = { code: 'BREAKER', name: 'BREAKER' };
-if (!rooms.has(PERMANENT_ROOM.code)) {
-  rooms.set(PERMANENT_ROOM.code, {
-    code: PERMANENT_ROOM.code,
-    name: PERMANENT_ROOM.name,
-    peers: new Map(),
-  });
-  console.log('Permanent room created: BREAKER');
-  saveRooms();
-}
-
-function genCode() {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
-}
-
-function getRoomList() {
-  return [...rooms.values()].map(r => ({
-    code: r.code,
-    name: r.name,
-    memberCount: r.peers.size,
-  }));
-}
-
-function broadcastRoomList() {
-  const list = JSON.stringify({ type: 'room-list', rooms: getRoomList() });
-  wss.clients.forEach(client => {
-    if (client.readyState === 1 && !client.roomCode) {
-      client.send(list);
-    }
-  });
-}
-
-function broadcast(room, message, excludeId = null) {
-  room.peers.forEach((ws, peerId) => {
-    if (peerId !== excludeId && ws.readyState === 1) {
-      ws.send(JSON.stringify(message));
-    }
-  });
-}
-
-function roomInfo(room, excludeId = null) {
-  return {
-    code: room.code,
-    name: room.name,
-    members: [...room.peers.values()]
-      .filter(ws => ws.peerId !== excludeId)
-      .map(ws => ({
-        id: ws.peerId,
-        name: ws.peerName,
-      })),
   };
 }
 
-wss.on('connection', (ws) => {
-  ws.peerId   = Math.random().toString(36).substring(2, 10);
-  ws.peerName = 'Unknown';
-  ws.roomCode = null;
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
 
-  // Send current room list on connect
-  ws.send(JSON.stringify({ type: 'room-list', rooms: getRoomList() }));
+// ── WEBRTC ──
+async function getMic() {
+  if (localStream) return localStream;
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  return localStream;
+}
 
-  ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
+function makePeer(peerId) {
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-    switch (msg.type) {
-
-      // ── CREATE ROOM ──────────────────────────────────
-      case 'create-room': {
-        const code = genCode();
-        const room = { code, name: msg.name || 'Room', peers: new Map() };
-        rooms.set(code, room);
-
-        ws.peerName = msg.peerName || 'User';
-        ws.roomCode = code;
-        room.peers.set(ws.peerId, ws);
-
-        ws.send(JSON.stringify({ type: 'room-created', room: roomInfo(room, ws.peerId), myId: ws.peerId }));
-        console.log(`Room created: ${code} "${room.name}"`);
-        saveRooms();
-        broadcastRoomList();
-        break;
-      }
-
-      // ── JOIN ROOM ─────────────────────────────────────
-      case 'join-room': {
-        const code = (msg.code || '').toUpperCase();
-        let room = rooms.get(code);
-
-        // Auto-create BREAKER if it doesn't exist
-        if (!room && code === 'BREAKER') {
-          room = { code: 'BREAKER', name: 'BREAKER', peers: new Map() };
-          rooms.set('BREAKER', room);
-          console.log('BREAKER room auto-created on join');
-          saveRooms();
-        }
-
-        if (!room) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Room not found' }));
-          return;
-        }
-
-        ws.peerName = msg.peerName || 'User';
-        ws.roomCode = code;
-        room.peers.set(ws.peerId, ws);
-
-        // Tell the joiner about the room and existing peers
-        ws.send(JSON.stringify({
-          type: 'room-joined',
-          room: roomInfo(room, ws.peerId),
-          myId: ws.peerId,
-          existingPeers: [...room.peers.keys()].filter(id => id !== ws.peerId),
-        }));
-
-        // Tell everyone else someone joined
-        broadcast(room, {
-          type: 'peer-joined',
-          peerId: ws.peerId,
-          peerName: ws.peerName,
-          room: roomInfo(room),
-        }, ws.peerId); // roomInfo here is fine — excludeId not needed for broadcast
-
-        console.log(`${ws.peerName} joined: ${code}`);
-        break;
-      }
-
-      // ── WEBRTC SIGNALING ─────────────────────────────
-      // offer, answer, ice-candidate are forwarded to the target peer
-      case 'offer':
-      case 'answer':
-      case 'ice-candidate': {
-        const room = rooms.get(ws.roomCode);
-        if (!room) {
-          console.log(`RELAY FAIL: ${msg.type} from ${ws.peerId} - no room (roomCode=${ws.roomCode})`);
-          return;
-        }
-        const target = room.peers.get(msg.targetId);
-        if (target && target.readyState === 1) {
-          target.send(JSON.stringify({
-            ...msg,
-            fromId: ws.peerId,
-            fromName: ws.peerName,
-          }));
-          console.log(`RELAY OK: ${msg.type} from ${ws.peerId.substring(0,4)} to ${msg.targetId.substring(0,4)}`);
-        } else {
-          console.log(`RELAY FAIL: ${msg.type} target ${msg.targetId} not found or not open`);
-        }
-        break;
-      }
-
-      // ── PTT STATE ────────────────────────────────────
-      case 'ptt-start':
-      case 'ptt-stop': {
-        const room = rooms.get(ws.roomCode);
-        if (!room) return;
-        broadcast(room, {
-          type: msg.type,
-          peerId: ws.peerId,
-          peerName: ws.peerName,
-        }, ws.peerId);
-        break;
-      }
-
-      // ── LEAVE ROOM ───────────────────────────────────
-      case 'leave-room': {
-        leaveRoom(ws);
-        break;
-      }
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) {
+      showStatus('ICE cand: ' + (candidate.type || 'host'));
+      send({ type: 'ice-candidate', targetId: peerId, candidate });
+    } else {
+      showStatus('ICE gathering done');
     }
-  });
+  };
 
-  ws.on('close', () => leaveRoom(ws));
-  ws.on('error', () => leaveRoom(ws));
-});
+  pc.ontrack = ({ streams: [stream] }) => {
+    console.log('GOT TRACK from', peerId);
+    showStatus('Got audio from ' + peerId.substring(0,4));
+    let audio = audioEls.get(peerId);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.autoplay = true;
+      audio.playsInline = true;
+      document.body.appendChild(audio);
+      audioEls.set(peerId, audio);
+    }
+    audio.srcObject = stream;
+    audio.play().catch(console.error);
+  };
 
-function leaveRoom(ws) {
-  if (!ws.roomCode) return;
-  const room = rooms.get(ws.roomCode);
-  if (!room) return;
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState;
+    console.log('peer', peerId, state);
+    showStatus('Peer: ' + state + ' | ICE: ' + pc.iceConnectionState);
+  };
+  pc.oniceconnectionstatechange = () => {
+    const s = pc.iceConnectionState;
+    console.log('ICE', peerId, s);
+    showStatus('ICE: ' + s);
+    if (s === 'failed') {
+      showStatus('ICE FAILED - trying restart');
+      pc.restartIce();
+    }
+  };
+  pc.onicegatheringstatechange = () => {
+    showStatus('Gathering: ' + pc.iceGatheringState);
+  };
 
-  room.peers.delete(ws.peerId);
-  ws.roomCode = null;
+  if (localStream) {
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  }
 
-  if (room.peers.size === 0 && room.code !== 'BREAKER') {
-    rooms.delete(room.code);
-    console.log(`Room deleted: ${room.code}`);
-    saveRooms();
-    broadcastRoomList();
+  peers.set(peerId, pc);
+  return pc;
+}
+
+async function createOffer(peerId) {
+  await getMic();
+  const pc = makePeer(peerId);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  send({ type: 'offer', targetId: peerId, sdp: pc.localDescription });
+}
+
+async function handleOffer(msg) {
+  await getMic();
+  const pc = makePeer(msg.fromId);
+  await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+  await flushIceCandidates(msg.fromId);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  send({ type: 'answer', targetId: msg.fromId, sdp: pc.localDescription });
+}
+
+async function handleAnswer(msg) {
+  showStatus('Got answer from ' + msg.fromId.substring(0,4));
+  const pc = peers.get(msg.fromId);
+  if (pc) {
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    showStatus('Answer set, state: ' + pc.signalingState);
   } else {
-    broadcast(room, {
-      type: 'peer-left',
-      peerId: ws.peerId,
-      peerName: ws.peerName,
-      room: roomInfo(room),
-    });
+    showStatus('No peer for answer from ' + msg.fromId.substring(0,4));
   }
 }
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`BREAKER signaling server on port ${PORT}`);
-  console.log(`Serving files from: ${__dirname}`);
-  console.log(`cwd: ${process.cwd()}`);
+async function handleIce(msg) {
+  const pc = peers.get(msg.fromId);
+  if (pc) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      showStatus('Added ICE from ' + msg.fromId.substring(0,4) + ' sig:' + pc.signalingState);
+    } catch(e) {
+      showStatus('ICE add error: ' + e.message);
+    }
+  } else {
+    showStatus('No peer for ICE from ' + msg.fromId.substring(0,4) + ' peers:' + peers.size);
+  }
+}
+
+function closePeer(peerId) {
+  const pc = peers.get(peerId);
+  if (pc) { pc.close(); peers.delete(peerId); }
+  const audio = audioEls.get(peerId);
+  if (audio) { audio.srcObject = null; audio.remove(); audioEls.delete(peerId); }
+}
+
+// ── PTT ──
+async function startTx(e) {
+  if (e) e.preventDefault();
+  if (!currentRoom || transmitting) return;
+  await getMic();
+  // Enable all tracks
+  localStream.getTracks().forEach(t => t.enabled = true);
+  transmitting = true;
+  send({ type: 'ptt-start' });
+  document.getElementById('ptt-btn').classList.add('tx');
+  document.getElementById('ptt-outer').classList.add('tx');
+  document.getElementById('ptt-hint').textContent = '● TRANSMITTING';
+  document.getElementById('ptt-hint').className = 'ptt-hint tx';
+  setWave('tx');
+}
+
+function stopTx() {
+  if (!transmitting) return;
+  transmitting = false;
+  if (localStream) localStream.getTracks().forEach(t => t.enabled = false);
+  send({ type: 'ptt-stop' });
+  document.getElementById('ptt-btn').classList.remove('tx');
+  document.getElementById('ptt-outer').classList.remove('tx');
+  document.getElementById('ptt-hint').textContent = 'Everyone in the room will hear you';
+  document.getElementById('ptt-hint').className = 'ptt-hint';
+  setWave(null);
+}
+
+// ── JOIN ──
+async function joinMain() {
+  const name = document.getElementById('name-input').value.trim();
+  if (!name) { showToast('Enter your name'); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { showToast('Not connected yet'); return; }
+  myName = name;
+  localStorage.setItem('breaker-name', name);
+  // Get mic first so it's included in WebRTC offer
+  try { await getMic(); } catch(e) { console.error('mic error', e); }
+  // Disable tracks until PTT pressed
+  if (localStream) localStream.getTracks().forEach(t => t.enabled = false);
+  send({ type: 'join-room', code: 'BREAKER', peerName: name });
+}
+
+function leaveRoom() {
+  send({ type: 'leave-room' });
+  peers.forEach((_, id) => closePeer(id));
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  currentRoom = null;
+  window._wasInRoom = false;
+  setWave(null);
+  showScreen('screen-rooms');
+}
+
+// ── UI ──
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function renderRoom(room) {
+  const el = document.getElementById('room-title');
+  if (el) el.textContent = 'BREAKER';
+  updateMembers(room);
+}
+
+function updateMembers(room) {
+  if (!room) return;
+  const selfLetter = (myName[0] || '?').toUpperCase();
+  const all = [{ name: myName, initial: selfLetter },
+    ...(room.members || []).filter(m => m.id !== myId)];
+  const container = document.getElementById('room-avatars');
+  if (!container) return;
+  container.innerHTML = '';
+  all.slice(0, 6).forEach(m => {
+    const av = document.createElement('div');
+    av.className = 'avatar';
+    av.textContent = (m.name[0] || '?').toUpperCase();
+    av.onclick = () => showMemberName(m.name);
+    container.appendChild(av);
+  });
+  const cnt = document.getElementById('room-member-count');
+  if (cnt) cnt.textContent = all.length;
+}
+
+function showSpeaking(name, active) {
+  setWave(active ? 'rx' : null);
+  const ws2 = document.getElementById('wave-status');
+  if (ws2) {
+    ws2.textContent = active ? name.toUpperCase() : 'IDLE';
+    ws2.className = active ? 'wave-status rx' : 'wave-status';
+  }
+}
+
+function setWave(mode) {
+  document.querySelectorAll('.wbar').forEach(b => {
+    b.classList.remove('tx', 'rx');
+    if (mode) b.classList.add(mode);
+  });
+  const ws2 = document.getElementById('wave-status');
+  if (!mode && ws2) { ws2.textContent = 'IDLE'; ws2.className = 'wave-status'; }
+}
+
+function updateStatus(connected) {
+  const dot = document.getElementById('conn-dot');
+  const lbl = document.getElementById('conn-label');
+  if (dot) { dot.style.background = connected ? '#39ff8a' : '#ff4545'; dot.style.boxShadow = connected ? '0 0 6px #39ff8a' : '0 0 6px #ff4545'; }
+  if (lbl) lbl.textContent = connected ? 'LIVE' : 'RECONNECTING';
+}
+
+// ── MEMBER NAME ──
+function showMemberName(name) {
+  document.getElementById('member-popup')?.remove();
+  const el = document.createElement('div');
+  el.id = 'member-popup';
+  el.textContent = name;
+  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#141816;border:2px solid #39ff8a;color:#39ff8a;font-family:"Bebas Neue",sans-serif;font-size:1.8rem;letter-spacing:4px;padding:18px 32px;border-radius:16px;z-index:999;pointer-events:none;';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+}
+
+// ── LOG PANEL ──
+const logLines = [];
+function showStatus(msg) {
+  const time = new Date().toISOString().substring(11,23);
+  const line = time + ' ' + msg;
+  logLines.push(line);
+  if (logLines.length > 100) logLines.shift();
+  console.log('[LOG]', line);
+  const el = document.getElementById('log-panel');
+  if (el) el.textContent = logLines.slice(-12).join('\n');
+}
+function copyLog() {
+  navigator.clipboard?.writeText(logLines.join('\n'))
+    .then(() => alert('Log copied to clipboard!'));
+}
+
+// ── TOAST ──
+let toastT;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ── SHARE ──
+function copyInviteLink() {
+  const link = window.location.origin;
+  navigator.clipboard?.writeText(link).then(() => showToast('Link copied!'));
+}
+
+// ── PWA ──
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); deferredPrompt = e;
+  document.getElementById('install-banner')?.classList.add('show');
+});
+function installPWA() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(() => {
+    deferredPrompt = null;
+    document.getElementById('install-banner')?.classList.remove('show');
+  });
+}
+
+// ── MIC RELEASE ──
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && localStream) {
+    localStream.getTracks().forEach(t => t.enabled = false);
+    if (transmitting) stopTx();
+  }
+});
+window.addEventListener('pagehide', () => {
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
 });
 
-wss.on('error', (err) => console.error('WSS error:', err));
-process.on('uncaughtException', (err) => console.error('Uncaught:', err));
+// ── SERVICE WORKER ──
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+// ── RESTORE NAME ──
+const savedName = localStorage.getItem('breaker-name');
+if (savedName) {
+  document.getElementById('name-input').value = savedName;
+  document.getElementById('self-av').textContent = savedName[0].toUpperCase();
+  myName = savedName;
+}
+
+document.getElementById('name-input').addEventListener('input', () => {
+  const v = document.getElementById('name-input').value.trim();
+  if (v) {
+    document.getElementById('self-av').textContent = v[0].toUpperCase();
+    localStorage.setItem('breaker-name', v);
+    myName = v;
+  }
+});
+
+// ── START ──
+connectWS();
