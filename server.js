@@ -64,6 +64,23 @@ function genCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
+function getRoomList() {
+  return [...rooms.values()].map(r => ({
+    code: r.code,
+    name: r.name,
+    memberCount: r.peers.size,
+  }));
+}
+
+function broadcastRoomList() {
+  const list = JSON.stringify({ type: 'room-list', rooms: getRoomList() });
+  wss.clients.forEach(client => {
+    if (client.readyState === 1 && !client.roomCode) {
+      client.send(list);
+    }
+  });
+}
+
 function broadcast(room, message, excludeId = null) {
   room.peers.forEach((ws, peerId) => {
     if (peerId !== excludeId && ws.readyState === 1) {
@@ -90,6 +107,9 @@ wss.on('connection', (ws) => {
   ws.peerName = 'Unknown';
   ws.roomCode = null;
 
+  // Send current room list on connect
+  ws.send(JSON.stringify({ type: 'room-list', rooms: getRoomList() }));
+
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
@@ -108,6 +128,7 @@ wss.on('connection', (ws) => {
 
         ws.send(JSON.stringify({ type: 'room-created', room: roomInfo(room, ws.peerId), myId: ws.peerId }));
         console.log(`Room created: ${code} "${room.name}"`);
+        broadcastRoomList();
         break;
       }
 
@@ -199,6 +220,7 @@ function leaveRoom(ws) {
   if (room.peers.size === 0) {
     rooms.delete(room.code);
     console.log(`Room deleted: ${room.code}`);
+    broadcastRoomList();
   } else {
     broadcast(room, {
       type: 'peer-left',
