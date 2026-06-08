@@ -8,8 +8,6 @@
 const SERVER_URL = window.location.hostname === 'localhost'
   ? 'ws://localhost:3000'
   : 'wss://phone-talkie-production.up.railway.app';
-// Force WSS on Railway
-const WS_URL = SERVER_URL;
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -35,10 +33,29 @@ const streams   = new Map(); // peerId → MediaStream
 let localStream = null;
 
 // ── WEBSOCKET ────────────────────────────
+let reconnectDelay = 2000;
+
 function connectWS() {
-  ws = new WebSocket(SERVER_URL);
+  updateConnectionLabel('CONNECTING...');
+  try {
+    ws = new WebSocket(SERVER_URL);
+  } catch(e) {
+    console.error('WS creation failed', e);
+    setTimeout(connectWS, reconnectDelay);
+    return;
+  }
+
+  // Timeout if no connection after 10s
+  const timeout = setTimeout(() => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      ws.close();
+      updateConnectionLabel('RETRYING...');
+    }
+  }, 10000);
 
   ws.onopen = () => {
+    clearTimeout(timeout);
+    reconnectDelay = 2000; // reset backoff
     console.log('WS connected');
     updateConnectionStatus(true);
     // Auto-join if user arrived via share link
@@ -60,9 +77,10 @@ function connectWS() {
   };
 
   ws.onclose = () => {
-    console.log('WS disconnected — retrying in 3s');
+    console.log(`WS disconnected — retrying in ${reconnectDelay}ms`);
     updateConnectionStatus(false);
-    setTimeout(connectWS, 3000);
+    setTimeout(connectWS, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 15000); // exponential backoff, max 15s
   };
 
   ws.onerror = (e) => console.error('WS error', e);
@@ -425,8 +443,16 @@ function updateConnectionStatus(connected) {
   const lbl = document.getElementById('conn-label');
   if (dot && lbl) {
     dot.style.background = connected ? '#39ff8a' : '#ff4545';
+    dot.style.boxShadow  = connected ? '0 0 6px #39ff8a' : '0 0 6px #ff4545';
     lbl.textContent      = connected ? 'LIVE' : 'RECONNECTING';
   }
+}
+
+function updateConnectionLabel(text) {
+  const lbl = document.getElementById('conn-label');
+  const dot = document.getElementById('conn-dot');
+  if (lbl) lbl.textContent = text;
+  if (dot) { dot.style.background = '#ffb830'; dot.style.boxShadow = '0 0 6px #ffb830'; }
 }
 
 // ── NAME SYNC ────────────────────────────
