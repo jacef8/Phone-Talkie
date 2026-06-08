@@ -32,6 +32,7 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
+    font-size: 18px;
     background: var(--bg);
     color: var(--text);
     font-family: var(--body);
@@ -62,7 +63,7 @@
   .logo { font-family: var(--display); font-size: 2.2rem; letter-spacing: 0.1em; color: var(--green); text-shadow: 0 0 20px rgba(57,255,138,0.35); }
   .live-pill {
     display: flex; align-items: center; gap: 6px;
-    font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.12em;
+    font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.12em;
     color: var(--green); background: var(--green-faint);
     border: 1px solid var(--green-dim); border-radius: 20px; padding: 5px 12px;
   }
@@ -76,7 +77,7 @@
   .field {
     background: var(--panel2); border: 1px solid var(--border);
     border-radius: 10px; padding: 11px 14px;
-    font-family: var(--body); font-size: 0.88rem; color: var(--text);
+    font-family: var(--body); font-size: 1rem; color: var(--text);
     outline: none; width: 100%; transition: border-color 0.15s;
   }
   .field::placeholder { color: var(--muted); }
@@ -85,14 +86,14 @@
   .btn-green {
     background: var(--green); color: #0a0f0d;
     border: none; border-radius: 10px; padding: 12px 20px;
-    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em;
+    font-family: var(--mono); font-size: 0.85rem; letter-spacing: 0.1em;
     text-transform: uppercase; cursor: pointer;
     transition: opacity 0.12s, transform 0.08s; width: 100%; font-weight: 600;
   }
   .btn-green:hover { opacity: 0.88; }
   .btn-green:active { transform: scale(0.97); }
 
-  .section-label { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase; color: #b0cfc0; }
+  .section-label { font-family: var(--mono); font-size: 0.85rem; letter-spacing: 0.12em; text-transform: uppercase; color: #b0cfc0; }
 
   /* ── ROOMS SCREEN ── */
   .name-row {
@@ -107,13 +108,13 @@
     font-family: var(--display); font-size: 1.1rem; color: var(--green); flex-shrink: 0;
   }
   .name-field-wrap { flex: 1; }
-  .name-sublabel { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.1em; text-transform: uppercase; color: #a0c0ae; margin-bottom: 2px; }
-  .name-input { background: transparent; border: none; outline: none; font-family: var(--body); font-size: 0.9rem; font-weight: 500; color: var(--text); width: 100%; }
+  .name-sublabel { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; color: #a0c0ae; margin-bottom: 2px; }
+  .name-input { background: transparent; border: none; outline: none; font-family: var(--body); font-size: 1.05rem; font-weight: 500; color: var(--text); width: 100%; }
   .name-input::placeholder { color: var(--muted); font-weight: 400; }
 
   .action-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
   .action-card .row { display: flex; gap: 10px; }
-  .divider { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.1em; color: var(--muted); }
+  .divider { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.1em; color: var(--muted); }
   .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
   .rooms-list { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -124,29 +125,29 @@
   .room-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--panel3); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 1.1rem; color: var(--muted); flex-shrink: 0; transition: all 0.12s; }
   .room-item:hover .room-icon { background: var(--green-dim); border-color: var(--green-dim); color: var(--green); }
   .room-body { flex: 1; min-width: 0; }
-  .room-name { font-size: 0.88rem; font-weight: 500; color: var(--text); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
-  .room-meta { font-family: var(--mono); font-size: 0.58rem; color: #a0c0ae; letter-spacing: 0.05em; }
+  .room-name { font-size: 1rem; font-weight: 500; color: var(--text); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
+  .room-meta { font-family: var(--mono); font-size: 0.76rem; color: #a0c0ae; letter-spacing: 0.05em; }
   .room-meta .dot { color: var(--green); margin-right: 4px; }
-  .code-badge { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.1em; color: #a0c0ae; background: var(--panel3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
-  .empty-rooms { padding: 28px 16px; text-align: center; font-family: var(--mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; line-height: 1.8; }
+  .code-badge { font-family: var(--mono); font-size: 0.82rem; letter-spacing: 0.08em; color: #a0c0ae; background: var(--panel3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
+  .empty-rooms { padding: 28px 16px; text-align: center; font-family: var(--mono); font-size: 1rem; color: var(--muted); letter-spacing: 0.08em; line-height: 1.8; }
 
   /* ── ROOM SCREEN ── */
-  .back-btn { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); cursor: pointer; background: none; border: none; padding: 0; transition: color 0.12s; align-self: flex-start; }
+  .back-btn { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); cursor: pointer; background: none; border: none; padding: 0; transition: color 0.12s; align-self: flex-start; }
   .back-btn:hover { color: var(--green); }
   .back-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
   .room-header-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .room-header-name { font-family: var(--display); font-size: 1.5rem; letter-spacing: 0.08em; color: var(--green); line-height: 1; }
-  .share-btn { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.1em; color: var(--green); background: var(--green-faint); border: 1px solid var(--green-dim); border-radius: 20px; padding: 5px 12px; cursor: pointer; transition: all 0.12s; user-select: none; margin-top: 8px; }
+  .share-btn { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.1em; color: var(--green); background: var(--green-faint); border: 1px solid var(--green-dim); border-radius: 20px; padding: 5px 12px; cursor: pointer; transition: all 0.12s; user-select: none; margin-top: 8px; }
   .share-btn:hover { background: rgba(57,255,138,0.12); }
   .share-icon { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 
   .members-row { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
   .avatars { display: flex; align-items: center; }
-  .avatar { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--bg); display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 0.95rem; margin-left: -7px; background: var(--panel3); color: var(--muted); }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--bg); display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 1.05rem; margin-left: -7px; background: var(--panel3); color: var(--muted); }
   .avatar:first-child { margin-left: 0; }
   .avatar.speaking { outline: 2px solid var(--green); outline-offset: 1px; color: var(--green); background: var(--green-dim); }
-  .members-right { font-family: var(--mono); font-size: 0.62rem; color: #a0c0ae; letter-spacing: 0.08em; text-align: right; }
+  .members-right { font-family: var(--mono); font-size: 0.87rem; color: #a0c0ae; letter-spacing: 0.06em; text-align: right; }
   .members-right strong { display: block; font-family: var(--display); font-size: 1.3rem; color: var(--text); line-height: 1; }
 
   .waveform-row { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; }
@@ -156,7 +157,7 @@
   .wbar.rx { background: var(--green); animation: wvanim 0.35s ease-in-out infinite alternate; box-shadow: 0 0 4px rgba(57,255,138,0.4); }
   @keyframes wvanim { from{height:3px;} to{height:28px;} }
   .wbar:nth-child(odd){animation-delay:0.07s;} .wbar:nth-child(3n){animation-delay:0.13s;} .wbar:nth-child(5n){animation-delay:0.04s;} .wbar:nth-child(7n){animation-delay:0.17s;}
-  .wave-status { font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; color: #a8c8b8; white-space: nowrap; min-width: 52px; text-align: right; }
+  .wave-status { font-family: var(--mono); font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: #a8c8b8; white-space: nowrap; min-width: 52px; text-align: right; }
   .wave-status.tx { color: var(--amber); }
   .wave-status.rx { color: var(--green); }
 
@@ -168,22 +169,22 @@
   .msg-item:last-child { border-bottom: none; }
   .msg-item:hover { background: var(--green-faint); }
   .msg-item.playing { background: var(--green-faint); }
-  .msg-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--panel3); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 0.9rem; color: var(--muted); flex-shrink: 0; }
+  .msg-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--panel3); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 1rem; color: var(--muted); flex-shrink: 0; }
   .msg-body { flex: 1; min-width: 0; }
-  .msg-name { font-size: 0.8rem; font-weight: 500; color: var(--text); display: block; line-height: 1; margin-bottom: 3px; }
-  .msg-meta { font-family: var(--mono); font-size: 0.58rem; color: #a0c0ae; letter-spacing: 0.05em; }
+  .msg-name { font-size: 1.05rem; font-weight: 500; color: var(--text); display: block; line-height: 1; margin-bottom: 3px; }
+  .msg-meta { font-family: var(--mono); font-size: 0.76rem; color: #a0c0ae; letter-spacing: 0.05em; }
   .msg-wave { display: flex; align-items: center; gap: 2px; height: 14px; flex: 1; }
   .mwbar { width: 2px; border-radius: 1px; background: var(--panel3); }
   .msg-item.playing .mwbar { background: var(--green-dim); animation: mwanim 0.4s ease-in-out infinite alternate; }
   .msg-item.playing .mwbar:nth-child(2n){animation-delay:0.1s;} .msg-item.playing .mwbar:nth-child(3n){animation-delay:0.2s;}
   @keyframes mwanim { from{height:3px;} to{height:14px;} }
   .msg-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
-  .msg-time { font-family: var(--mono); font-size: 0.58rem; color: #a0c0ae; }
+  .msg-time { font-family: var(--mono); font-size: 0.7rem; color: #a0c0ae; }
   .play-icon { width: 22px; height: 22px; border-radius: 50%; background: var(--panel3); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; transition: all 0.12s; }
   .msg-item:hover .play-icon, .msg-item.playing .play-icon { background: var(--green-dim); border-color: var(--green); box-shadow: 0 0 8px rgba(57,255,138,0.3); }
   .play-icon svg { width: 10px; height: 10px; fill: var(--muted); }
   .msg-item:hover .play-icon svg, .msg-item.playing .play-icon svg { fill: var(--green); }
-  .empty-state { padding: 24px 16px; text-align: center; font-family: var(--mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; }
+  .empty-state { padding: 24px 16px; text-align: center; font-family: var(--mono); font-size: 1rem; color: var(--muted); letter-spacing: 0.08em; }
 
   .ptt-section { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 8px 0 4px; }
   .ptt-outer { position: relative; width: 176px; height: 176px; display: flex; align-items: center; justify-content: center; }
@@ -195,21 +196,21 @@
   .ptt-btn:active, .ptt-btn.tx { border-color: var(--amber); transform: scale(0.96); box-shadow: 0 0 0 10px rgba(255,184,48,0.06), 0 0 36px rgba(255,184,48,0.18), 0 4px 14px rgba(0,0,0,0.5); }
   .ptt-mic { width: 34px; height: 34px; fill: none; stroke: var(--green); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.1s, transform 0.1s; }
   .ptt-btn.tx .ptt-mic { stroke: var(--amber); transform: scale(1.08); }
-  .ptt-sub { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); transition: color 0.1s; }
+  .ptt-sub { font-family: var(--mono); font-size: 0.82rem; letter-spacing: 0.1em; text-transform: uppercase; color: #a0c0ae; transition: color 0.1s; }
   .ptt-btn.tx .ptt-sub { color: var(--amber); }
-  .ptt-hint { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.07em; color: #a0c0ae; text-align: center; }
+  .ptt-hint { font-family: var(--mono); font-size: 0.87rem; letter-spacing: 0.06em; color: #a0c0ae; text-align: center; }
   .ptt-hint.tx { color: var(--amber); animation: blink 0.6s step-end infinite; }
   @keyframes blink { 50%{opacity:0.25;} }
 
-  .toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--panel3); border: 1px solid var(--green-dim); color: var(--green); font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.1em; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.2s, transform 0.2s; z-index: 999; white-space: nowrap; }
+  .toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--panel3); border: 1px solid var(--green-dim); color: var(--green); font-family: var(--mono); font-size: 1rem; letter-spacing: 0.1em; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: opacity 0.2s, transform 0.2s; z-index: 999; white-space: nowrap; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   /* Install banner */
   #install-banner { display: none; background: var(--panel); border: 1px solid var(--green-dim); border-radius: 12px; padding: 12px 16px; align-items: center; gap: 12px; }
   #install-banner.show { display: flex; }
-  #install-banner p { flex: 1; font-size: 0.8rem; color: var(--text); line-height: 1.4; }
+  #install-banner p { flex: 1; font-size: 1rem; color: var(--text); line-height: 1.4; }
   #install-banner p span { color: var(--green); font-weight: 500; }
-  #install-btn { background: var(--green); color: #0a0f0d; border: none; border-radius: 8px; padding: 8px 14px; font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.08em; cursor: pointer; white-space: nowrap; font-weight: 600; }
+  #install-btn { background: var(--green); color: #0a0f0d; border: none; border-radius: 8px; padding: 8px 14px; font-family: var(--mono); font-size: 1rem; letter-spacing: 0.08em; cursor: pointer; white-space: nowrap; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -244,13 +245,13 @@
       <div class="section-label">Create a room</div>
       <div class="row">
         <input class="field" id="create-name-input" placeholder="Room name (e.g. Field Team)" maxlength="24" style="flex:1" />
-        <button class="btn-green" style="width:auto;padding:11px 18px;font-size:0.68rem;" onclick="createRoom()">CREATE</button>
+        <button class="btn-green" style="width:auto;padding:11px 18px;font-size:0.82rem;" onclick="createRoom()">CREATE</button>
       </div>
       <div class="divider">OR</div>
       <div class="section-label">Join with a code</div>
       <div class="row">
         <input class="field" id="join-code-input" placeholder="Enter room code…" maxlength="6" style="flex:1;text-transform:uppercase;letter-spacing:0.1em;font-family:var(--mono);" />
-        <button class="btn-green" style="width:auto;padding:11px 18px;font-size:0.68rem;" onclick="joinByCode()">JOIN</button>
+        <button class="btn-green" style="width:auto;padding:11px 18px;font-size:0.82rem;" onclick="joinByCode()">JOIN</button>
       </div>
     </div>
 
