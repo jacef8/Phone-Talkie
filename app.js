@@ -95,6 +95,11 @@ async function handleSignal(msg) {
     case 'room-created':
       myId = msg.myId || myId;
       currentRoom = msg.room;
+      // Track locally
+      window._localRooms = window._localRooms || [];
+      if (!window._localRooms.find(r => r.code === msg.room.code)) {
+        window._localRooms.push({ ...msg.room, memberCount: 1 });
+      }
       renderRoom(msg.room);
       showScreen('screen-room');
       break;
@@ -148,6 +153,10 @@ async function handleSignal(msg) {
     case 'ptt-stop':
       showSpeaking(msg.peerName, false);
       addFeedItem(msg.peerName, 'speak', msg.fromId);
+      break;
+
+    case 'room-list':
+      renderServerRooms(msg.rooms);
       break;
 
     case 'error':
@@ -535,6 +544,49 @@ function showToast(msg) {
 // ── PWA SERVICE WORKER ───────────────────
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(console.error);
+}
+
+// ── SERVER ROOM LIST ────────────────────────
+function renderServerRooms(rooms) {
+  const container = document.getElementById('rooms-container');
+  const countEl   = document.getElementById('room-count');
+
+  // Also merge in any rooms we're already tracking locally
+  const localRooms = window._localRooms || [];
+  const allRooms = [...rooms];
+  localRooms.forEach(r => {
+    if (!allRooms.find(x => x.code === r.code)) allRooms.push(r);
+  });
+
+  countEl.textContent = allRooms.length === 1 ? '1 room' : `${allRooms.length} rooms`;
+
+  if (allRooms.length === 0) {
+    container.innerHTML = '<div class="empty-rooms">NO ACTIVE ROOMS<br>CREATE ONE ABOVE</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  allRooms.forEach(room => {
+    const el = document.createElement('div');
+    el.className = 'room-item';
+    el.innerHTML = \`
+      <div class="room-icon">\${room.name[0].toUpperCase()}</div>
+      <div class="room-body">
+        <span class="room-name">\${room.name}</span>
+        <span class="room-meta"><span class="dot">●</span>\${room.memberCount || room.members?.length || 0} members</span>
+      </div>
+      <div class="code-badge">\${room.code}</div>
+    \`;
+    el.addEventListener('click', () => {
+      const name = document.getElementById('name-input').value.trim();
+      if (!name) { showToast('Enter your name first'); document.getElementById('name-input').focus(); return; }
+      myName = name;
+      navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        .then(() => send({ type: 'join-room', code: room.code, peerName: name }))
+        .catch(() => showToast('Microphone permission required'));
+    });
+    container.appendChild(el);
+  });
 }
 
 // ── JOIN MODAL (for share link flow) ────────
