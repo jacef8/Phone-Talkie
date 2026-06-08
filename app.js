@@ -8,8 +8,6 @@
 const SERVER_URL = window.location.hostname === 'localhost'
   ? 'ws://localhost:3000'
   : 'wss://phone-talkie-production.up.railway.app';
-// Force WSS on Railway
-const WS_URL = SERVER_URL;
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -35,34 +33,45 @@ const streams   = new Map(); // peerId → MediaStream
 let localStream = null;
 
 // ── WEBSOCKET ────────────────────────────
+let reconnectDelay = 2000;
+
 function connectWS() {
-  ws = new WebSocket(SERVER_URL);
+  updateConnectionLabel('CONNECTING...');
+  try {
+    ws = new WebSocket(SERVER_URL);
+  } catch(e) {
+    console.error('WS creation failed', e);
+    setTimeout(connectWS, reconnectDelay);
+    return;
+  }
+
+  // Timeout if no connection after 10s
+  const timeout = setTimeout(() => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      ws.close();
+      updateConnectionLabel('RETRYING...');
+    }
+  }, 10000);
 
   ws.onopen = () => {
+    clearTimeout(timeout);
+    reconnectDelay = 2000; // reset backoff
     console.log('WS connected');
     updateConnectionStatus(true);
     // Auto-join if user arrived via share link
     if (window._pendingRoomCode) {
       const code = window._pendingRoomCode;
       window._pendingRoomCode = null;
-      const name = document.getElementById('name-input').value.trim() || '';
-      if (!name) {
-        // Prompt for name first
-        document.getElementById('join-code-input').value = code;
-        document.getElementById('name-input').focus();
-        showToast('Enter your name then tap JOIN');
-      } else {
-        navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-          .then(() => send({ type: 'join-room', code, peerName: name }))
-          .catch(() => showToast('Microphone permission required'));
-      }
+      // Show the name entry modal then auto-join
+      showJoinModal(code);
     }
   };
 
   ws.onclose = () => {
-    console.log('WS disconnected — retrying in 3s');
+    console.log(`WS disconnected — retrying in ${reconnectDelay}ms`);
     updateConnectionStatus(false);
-    setTimeout(connectWS, 3000);
+    setTimeout(connectWS, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 15000); // exponential backoff, max 15s
   };
 
   ws.onerror = (e) => console.error('WS error', e);
@@ -130,11 +139,15 @@ async function handleSignal(msg) {
 
     case 'ptt-start':
       showSpeaking(msg.peerName, true);
+      // Start recording this peer's stream for replay
+      if (streams.has(msg.fromId)) {
+        window._activeRecording = { peerId: msg.fromId, startTime: Date.now() };
+      }
       break;
 
     case 'ptt-stop':
       showSpeaking(msg.peerName, false);
-      addFeedItem(msg.peerName, 'speak');
+      addFeedItem(msg.peerName, 'speak', msg.fromId);
       break;
 
     case 'error':
@@ -228,11 +241,28 @@ function closePeer(peerId) {
   streams.delete(peerId);
 }
 
-function playRemoteStream(stream) {
+function playRemoteStream(stream, peerId) {
   const audio = new Audio();
   audio.srcObject = stream;
   audio.autoplay = true;
   audio.play().catch(console.error);
+}
+
+// Record a stream and store blob against a message element
+function recordStream(stream, durationMs, onDone) {
+  if (!stream || !window.MediaRecorder) { onDone(null); return; }
+  const chunks = [];
+  let rec;
+  try {
+    rec = new MediaRecorder(stream);
+  } catch(e) { onDone(null); return; }
+  rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  rec.onstop = () => {
+    const blob = new Blob(chunks, { type: 'audio/webm' });
+    onDone(blob);
+  };
+  rec.start();
+  setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, durationMs + 500);
 }
 
 // ── PTT ─────────────────────────────────
@@ -359,7 +389,7 @@ function setWave(mode) {
   }
 }
 
-function addFeedItem(name, type) {
+function addFeedItem(name, type, peerId) {
   const list   = document.getElementById('history-list');
   const count  = document.getElementById('hist-count');
   const labels = { speak: 'spoke', join: 'joined', leave: 'left' };
@@ -393,6 +423,16 @@ function addFeedItem(name, type) {
     item.addEventListener('click', () => playMessage(name, dur, item));
     list.appendChild(item);
 
+    // Attach recorded audio if available
+    if (peerId && streams.has(peerId) && window._activeRecording?.peerId === peerId) {
+      const recDur = Date.now() - (window._activeRecording.startTime || Date.now());
+      const stream = streams.get(peerId);
+      recordStream(stream, recDur, (blob) => {
+        if (blob) messageAudio.set(item, blob);
+      });
+      window._activeRecording = null;
+    }
+
     // Keep max 10
     const items = list.querySelectorAll('.msg-item');
     if (items.length > 10) items[0].remove();
@@ -401,23 +441,50 @@ function addFeedItem(name, type) {
   }
 }
 
+// Store recorded audio blobs keyed by message element
+const messageAudio = new Map();
+
 function playMessage(name, dur, el) {
   if (transmitting) return;
+
+  // Stop current playback
   if (playingEl) {
     playingEl.classList.remove('playing');
     clearTimeout(playTimer);
-    if (playingEl === el) { playingEl = null; setWave(null); return; }
-  }
-  playingEl = el;
-  el.classList.add('playing');
-  setWave('rx');
-  document.getElementById('wave-status').textContent = name.toUpperCase();
-  document.getElementById('wave-status').className   = 'wave-status rx';
-  playTimer = setTimeout(() => {
-    el.classList.remove('playing');
+    if (window._currentAudio) {
+      window._currentAudio.pause();
+      window._currentAudio.currentTime = 0;
+      window._currentAudio = null;
+    }
+    const wasEl = playingEl;
     playingEl = null;
     setWave(null);
-  }, dur * 1000);
+    if (wasEl === el) return; // tapped same item = stop
+  }
+
+  // Play the recorded audio if we have it
+  const blob = messageAudio.get(el);
+  if (blob) {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    window._currentAudio = audio;
+    playingEl = el;
+    el.classList.add('playing');
+    setWave('rx');
+    document.getElementById('wave-status').textContent = name.toUpperCase();
+    document.getElementById('wave-status').className = 'wave-status rx';
+    audio.play();
+    audio.onended = () => {
+      el.classList.remove('playing');
+      playingEl = null;
+      window._currentAudio = null;
+      setWave(null);
+      URL.revokeObjectURL(url);
+    };
+  } else {
+    // No recording available — show indicator
+    showToast('No recording saved for this message');
+  }
 }
 
 function updateConnectionStatus(connected) {
@@ -425,8 +492,16 @@ function updateConnectionStatus(connected) {
   const lbl = document.getElementById('conn-label');
   if (dot && lbl) {
     dot.style.background = connected ? '#39ff8a' : '#ff4545';
+    dot.style.boxShadow  = connected ? '0 0 6px #39ff8a' : '0 0 6px #ff4545';
     lbl.textContent      = connected ? 'LIVE' : 'RECONNECTING';
   }
+}
+
+function updateConnectionLabel(text) {
+  const lbl = document.getElementById('conn-label');
+  const dot = document.getElementById('conn-dot');
+  if (lbl) lbl.textContent = text;
+  if (dot) { dot.style.background = '#ffb830'; dot.style.boxShadow = '0 0 6px #ffb830'; }
 }
 
 // ── NAME SYNC ────────────────────────────
@@ -460,6 +535,51 @@ function showToast(msg) {
 // ── PWA SERVICE WORKER ───────────────────
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(console.error);
+}
+
+// ── JOIN MODAL (for share link flow) ────────
+function showJoinModal(code) {
+  // Create a simple overlay asking for name
+  const overlay = document.createElement('div');
+  overlay.id = 'join-modal';
+  overlay.style.cssText = `
+    position:fixed;inset:0;z-index:500;
+    background:rgba(0,0,0,0.85);
+    display:flex;align-items:center;justify-content:center;
+    padding:24px;font-family:'Share Tech Mono',monospace;
+  `;
+  overlay.innerHTML = `
+    <div style="background:#141816;border:1px solid #1a5c3a;border-radius:20px;padding:28px;width:100%;max-width:320px;display:flex;flex-direction:column;gap:16px;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:4px;color:#39ff8a;">JOIN ROOM</div>
+      <div style="font-size:0.85rem;color:#a0c0ae;line-height:1.5;">You've been invited to join a room. Enter your name to jump in.</div>
+      <input id="modal-name" type="text" placeholder="Your name…" maxlength="18"
+        style="background:#1a1e1c;border:1px solid #232e28;border-radius:10px;padding:13px 16px;font-size:1rem;color:#eef5f0;outline:none;font-family:'DM Sans',sans-serif;width:100%;"
+      />
+      <button onclick="doModalJoin('${code}')"
+        style="background:#39ff8a;color:#0a0f0d;border:none;border-radius:10px;padding:14px;font-family:'Share Tech Mono',monospace;font-size:0.8rem;letter-spacing:2px;cursor:pointer;font-weight:700;">
+        JOIN NOW
+      </button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(() => document.getElementById('modal-name')?.focus(), 100);
+}
+
+function doModalJoin(code) {
+  const nameEl = document.getElementById('modal-name');
+  const name = nameEl?.value.trim() || '';
+  if (!name) { nameEl?.focus(); return; }
+  // Set name in main input too
+  document.getElementById('name-input').value = name;
+  document.getElementById('self-av').textContent = name[0].toUpperCase();
+  document.getElementById('av-self').textContent = name[0].toUpperCase();
+  myName = name;
+  // Remove modal
+  document.getElementById('join-modal')?.remove();
+  // Join
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    .then(() => send({ type: 'join-room', code, peerName: name }))
+    .catch(() => showToast('Microphone permission required'));
 }
 
 // ── INIT ─────────────────────────────────
