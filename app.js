@@ -1,10 +1,7 @@
 // ─────────────────────────────────────────
-//  BREAKER — app.js
-//  WebRTC + WebSocket signaling client
+//  BREAKER — app.js (simplified)
 // ─────────────────────────────────────────
 
-// ── CONFIG ──────────────────────────────
-// Replace this with your Railway server URL after deploying
 const SERVER_URL = window.location.hostname === 'localhost'
   ? 'ws://localhost:3000'
   : 'wss://phone-talkie-production.up.railway.app';
@@ -14,268 +11,150 @@ const ICE_SERVERS = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
-// ── STATE ────────────────────────────────
-let ws          = null;
-let myId        = null;
-let myName      = 'User';
+let ws = null;
+let myId = null;
+let myName = '';
 let currentRoom = null;
 let transmitting = false;
-let muted       = false;
-let rxTimer     = null;
-let playTimer   = null;
-let playingEl   = null;
-
-// WebRTC: one RTCPeerConnection per remote peer
-const peers       = new Map(); // peerId → RTCPeerConnection
-const streams     = new Map(); // peerId → MediaStream
-const audioElements = new Map(); // peerId → HTMLAudioElement
-
-// Local mic stream
 let localStream = null;
+const peers = new Map();
+const audioEls = new Map();
 
-// ── WEBSOCKET ────────────────────────────
+// ── WEBSOCKET ──
 let reconnectDelay = 2000;
+let wasConnected = false;
 
 function connectWS() {
-  updateConnectionLabel('CONNECTING...');
-  try {
-    ws = new WebSocket(SERVER_URL);
-  } catch(e) {
-    console.error('WS creation failed', e);
-    setTimeout(connectWS, reconnectDelay);
-    return;
-  }
-
-  // Timeout if no connection after 10s
-  const timeout = setTimeout(() => {
-    if (ws.readyState !== WebSocket.OPEN) {
-      ws.close();
-      updateConnectionLabel('RETRYING...');
-    }
-  }, 10000);
+  ws = new WebSocket(SERVER_URL);
 
   ws.onopen = () => {
-    clearTimeout(timeout);
-    const isReconnect = window._wasConnected || false;
-    window._wasConnected = true;
+    wasConnected = true;
     reconnectDelay = 2000;
-    console.log('WS connected, reconnect:', isReconnect);
-    updateConnectionStatus(true);
-
-    // Only auto-rejoin on reconnect (not first load) and only if we were in a room
-    if (isReconnect && window._wasInRoom && !currentRoom) {
-      const savedName = localStorage.getItem('breaker-name');
-      if (savedName) {
-        myName = savedName;
-        getMic().then(() => {
-          send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
-        }).catch(console.error);
-      }
+    updateStatus(true);
+    // Auto-rejoin if we were in a room
+    const savedName = localStorage.getItem('breaker-name');
+    if (savedName && currentRoom) {
+      myName = savedName;
+      send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
     }
   };
 
   ws.onclose = () => {
-    console.log(`WS disconnected — retrying in ${reconnectDelay}ms`);
-    updateConnectionStatus(false);
+    updateStatus(false);
     setTimeout(connectWS, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 1.5, 15000); // exponential backoff, max 15s
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
   };
 
-  ws.onerror = (e) => console.error('WS error', e);
+  ws.onerror = () => {};
 
-  ws.onmessage = async (event) => {
+  ws.onmessage = async (e) => {
     let msg;
-    try { msg = JSON.parse(event.data); } catch(e) { return; }
-    try {
-      await handleSignal(msg);
-    } catch(e) {
-      console.error('handleSignal error:', e);
+    try { msg = JSON.parse(e.data); } catch { return; }
+    console.log('MSG:', msg.type);
+
+    switch (msg.type) {
+      case 'room-created':
+      case 'room-joined':
+        myId = msg.myId || myId;
+        currentRoom = msg.room;
+        window._wasInRoom = true;
+        renderRoom(msg.room);
+        showScreen('screen-room');
+        if (msg.existingPeers) {
+          for (const pid of msg.existingPeers) {
+            await createOffer(pid);
+          }
+        }
+        break;
+
+      case 'peer-joined':
+        currentRoom = msg.room;
+        updateMembers(msg.room);
+        showToast(msg.peerName + ' joined');
+        await createOffer(msg.peerId);
+        break;
+
+      case 'peer-left':
+        currentRoom = msg.room;
+        updateMembers(msg.room);
+        showToast(msg.peerName + ' left');
+        closePeer(msg.peerId);
+        break;
+
+      case 'offer':
+        await handleOffer(msg);
+        break;
+
+      case 'answer':
+        await handleAnswer(msg);
+        break;
+
+      case 'ice-candidate':
+        await handleIce(msg);
+        break;
+
+      case 'ptt-start':
+        showSpeaking(msg.peerName, true);
+        break;
+
+      case 'ptt-stop':
+        showSpeaking(msg.peerName, false);
+        break;
+
+      case 'room-list':
+        // single room app, ignore
+        break;
+
+      case 'error':
+        if (msg.message === 'Room not found') {
+          setTimeout(() => {
+            const n = localStorage.getItem('breaker-name');
+            if (n && ws?.readyState === WebSocket.OPEN)
+              send({ type: 'join-room', code: 'BREAKER', peerName: n });
+          }, 1000);
+        }
+        break;
     }
   };
 }
 
 function send(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
-  }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
-// ── SIGNALING HANDLER ────────────────────
-async function handleSignal(msg) {
-  switch (msg.type) {
-
-    case 'room-created':
-      try {
-        myId = msg.myId || myId;
-        try { saveRoomToStorage(msg.room); } catch(e) {}
-        currentRoom = msg.room;
-        window._wasInRoom = true;
-        renderRoom(msg.room);
-        showScreen('screen-room');
-      } catch(e) { }
-      break;
-
-    case 'room-joined':
-      try {
-        myId = msg.myId || myId;
-        try { saveRoomToStorage(msg.room); } catch(e) {}
-        currentRoom = msg.room;
-        window._wasInRoom = true;
-        renderRoom(msg.room);
-        showScreen('screen-room');
-      } catch(e) {
-      }
-      if (msg.existingPeers) {
-        for (const peerId of msg.existingPeers) {
-          try { await createOffer(peerId); } catch(e) {}
-        }
-      }
-      break;
-
-    case 'peer-joined':
-      currentRoom = msg.room;
-      updateMembers(msg.room);
-      addFeedItem(msg.peerName, 'join');
-      // Initiate WebRTC connection to the new peer
-      try { await createOffer(msg.peerId); } catch(e) { console.error('createOffer failed:', e); }
-      break;
-
-    case 'peer-left':
-      currentRoom = msg.room;
-      updateMembers(msg.room);
-      addFeedItem(msg.peerName, 'leave');
-      closePeer(msg.peerId);
-      break;
-
-    case 'offer':
-      await handleOffer(msg);
-      break;
-
-    case 'answer':
-      await handleAnswer(msg);
-      break;
-
-    case 'ice-candidate':
-      await handleIceCandidate(msg);
-      break;
-
-    case 'ptt-start':
-      showSpeaking(msg.peerName, true);
-      // Start recording incoming stream for replay
-      if (streams.has(msg.fromId)) {
-        const recStream = streams.get(msg.fromId);
-        const rec = recordStream(recStream, (blob) => {
-          if (blob) window._lastRecordingBlob = blob;
-        });
-        window._activeRecording = {
-          peerId: msg.fromId,
-          startTime: Date.now(),
-          recorder: rec,
-        };
-      }
-      break;
-
-    case 'ptt-stop':
-      showSpeaking(msg.peerName, false);
-      // Stop recorder if active
-      if (window._activeRecording?.recorder) {
-        try { window._activeRecording.recorder.stop(); } catch(e) {}
-      }
-      // Small delay to let onstop fire before addFeedItem
-      setTimeout(() => {
-        addFeedItem(msg.peerName, 'speak', msg.fromId, window._lastRecordingBlob);
-        window._lastRecordingBlob = null;
-        window._activeRecording = null;
-      }, 300);
-      break;
-
-    case 'room-list':
-      renderServerRooms(msg.rooms);
-      break;
-
-    case 'error':
-      if (msg.message === 'Room not found') {
-        // BREAKER room should always exist — server may be restarting, retry
-        console.log('Room not found, retrying in 2s...');
-        setTimeout(() => {
-          const name = document.getElementById('name-input').value.trim() || myName;
-          if (name && ws?.readyState === WebSocket.OPEN) {
-            send({ type: 'join-room', code: 'BREAKER', peerName: name });
-          }
-        }, 2000);
-      } else {
-        showToast(msg.message);
-      }
-      break;
-  }
-}
-
-// ── WEBRTC ───────────────────────────────
-let audioContext = null;
-let gainNode = null;
-let processedStream = null;
-
+// ── WEBRTC ──
 async function getMic() {
   if (localStream) return localStream;
-  console.log('[MIC] acquiring mic...');
-  
-  const rawStream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    video: false
-  });
-  
-  // Route through GainNode so we can mute without stopping the track
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioContext.createMediaStreamSource(rawStream);
-  gainNode = audioContext.createGain();
-  gainNode.gain.value = 0; // silent until PTT pressed
-  const dest = audioContext.createMediaStreamDestination();
-  source.connect(gainNode);
-  gainNode.connect(dest);
-  
-  // processedStream goes into WebRTC, rawStream stays for track reference
-  localStream = dest.stream;
-  console.log('[MIC] mic ready with GainNode (gain=0)');
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   return localStream;
 }
 
-function releaseMic() {
-  if (!localStream) return;
-  console.log('[MIC] releasing mic');
-  if (gainNode) { gainNode.disconnect(); gainNode = null; }
-  if (audioContext) { audioContext.close(); audioContext = null; }
-  if (processedStream) { processedStream.getTracks().forEach(t => t.stop()); processedStream = null; }
-  localStream.getTracks().forEach(t => t.stop());
-  localStream = null;
-}
-
-function createPeerConnection(peerId) {
+function makePeer(peerId) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
   pc.onicecandidate = ({ candidate }) => {
-    if (candidate) {
-      send({ type: 'ice-candidate', targetId: peerId, candidate });
-    }
+    if (candidate) send({ type: 'ice-candidate', targetId: peerId, candidate });
   };
 
   pc.ontrack = ({ streams: [stream] }) => {
-    console.log('[AUDIO] ontrack fired for peer', peerId, 'stream tracks:', stream.getTracks().length);
-    streams.set(peerId, stream);
-    playRemoteStream(stream, peerId);
+    console.log('GOT TRACK from', peerId);
+    let audio = audioEls.get(peerId);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.autoplay = true;
+      audio.playsInline = true;
+      document.body.appendChild(audio);
+      audioEls.set(peerId, audio);
+    }
+    audio.srcObject = stream;
+    audio.play().catch(console.error);
   };
 
-  pc.onconnectionstatechange = () => {
-    console.log(`[AUDIO] Peer ${peerId}: ${pc.connectionState}`);
-  };
-  pc.oniceconnectionstatechange = () => {
-    console.log(`[AUDIO] ICE ${peerId}: ${pc.iceConnectionState}`);
-  };
+  pc.onconnectionstatechange = () =>
+    console.log('peer', peerId, pc.connectionState);
 
-  // Add local mic track if available (may not be yet — added on first PTT)
   if (localStream) {
-    localStream.getTracks().forEach(track => {
-      try { pc.addTrack(track, localStream); } catch(e) {}
-    });
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
   }
 
   peers.set(peerId, pc);
@@ -283,28 +162,20 @@ function createPeerConnection(peerId) {
 }
 
 async function createOffer(peerId) {
-  console.log('[AUDIO] createOffer for', peerId);
-  await getMic(); // gets mic with tracks disabled
-  const pc = createPeerConnection(peerId); // adds disabled tracks to connection
-  console.log('[AUDIO] senders:', pc.getSenders().length);
+  await getMic();
+  const pc = makePeer(peerId);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   send({ type: 'offer', targetId: peerId, sdp: pc.localDescription });
-  console.log('[AUDIO] offer sent');
-  // Do NOT release mic - keep stream alive for replaceTrack on PTT
 }
 
 async function handleOffer(msg) {
-  console.log('[AUDIO] handleOffer from', msg.fromId);
-  await getMic(); // gets mic with tracks disabled
-  const pc = createPeerConnection(msg.fromId); // adds disabled tracks
-  console.log('[AUDIO] senders:', pc.getSenders().length);
+  await getMic();
+  const pc = makePeer(msg.fromId);
   await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   send({ type: 'answer', targetId: msg.fromId, sdp: pc.localDescription });
-  console.log('[AUDIO] answer sent');
-  // Do NOT release mic - keep stream alive
 }
 
 async function handleAnswer(msg) {
@@ -312,7 +183,7 @@ async function handleAnswer(msg) {
   if (pc) await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
 }
 
-async function handleIceCandidate(msg) {
+async function handleIce(msg) {
   const pc = peers.get(msg.fromId);
   if (pc) await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
 }
@@ -320,92 +191,31 @@ async function handleIceCandidate(msg) {
 function closePeer(peerId) {
   const pc = peers.get(peerId);
   if (pc) { pc.close(); peers.delete(peerId); }
-  streams.delete(peerId);
-  // Remove and clean up audio element
-  if (audioElements.has(peerId)) {
-    const audio = audioElements.get(peerId);
-    audio.srcObject = null;
-    audio.remove();
-    audioElements.delete(peerId);
-  }
+  const audio = audioEls.get(peerId);
+  if (audio) { audio.srcObject = null; audio.remove(); audioEls.delete(peerId); }
 }
 
-function playRemoteStream(stream, peerId) {
-  // Remove any existing audio element for this peer
-  if (audioElements.has(peerId)) {
-    const old = audioElements.get(peerId);
-    old.srcObject = null;
-    old.remove();
-    audioElements.delete(peerId);
-  }
-
-  const audio = document.createElement('audio');
-  audio.srcObject = stream;
-  audio.autoplay = true;
-  audio.setAttribute('playsinline', '');
-  audio.setAttribute('webkit-playsinline', '');
-  audio.volume = 1.0;
-  audio.muted = false;
-  // Must be in DOM to survive garbage collection
-  audio.style.display = 'none';
-  document.body.appendChild(audio);
-
-  if (peerId) audioElements.set(peerId, audio);
-
-  // Some browsers need an explicit play() call
-  const playPromise = audio.play();
-  if (playPromise) {
-    playPromise.catch(e => {
-      console.error('Audio play failed:', e);
-      // Retry on next user interaction
-      document.addEventListener('click', () => audio.play().catch(console.error), { once: true });
-      document.addEventListener('touchstart', () => audio.play().catch(console.error), { once: true });
-    });
-  }
-}
-
-// Record a stream and store blob against a message element
-// ── PTT ─────────────────────────────────
-function startTx(e) {
+// ── PTT ──
+async function startTx(e) {
   if (e) e.preventDefault();
-  if (!currentRoom) return;
-  if (!localStream) { showToast('Microphone not ready'); return; }
-  doStartTx();
-}
-
-function doStartTx() {
-  if (!currentRoom) return;
+  if (!currentRoom || transmitting) return;
+  await getMic();
+  // Enable all tracks
+  localStream.getTracks().forEach(t => t.enabled = true);
   transmitting = true;
-  // Open the gain to send audio
-  if (gainNode) {
-    gainNode.gain.value = 1;
-    console.log('[AUDIO] gain=1, transmitting');
-  }
-
   send({ type: 'ptt-start' });
-
   document.getElementById('ptt-btn').classList.add('tx');
   document.getElementById('ptt-outer').classList.add('tx');
   document.getElementById('ptt-hint').textContent = '● TRANSMITTING';
   document.getElementById('ptt-hint').className = 'ptt-hint tx';
   setWave('tx');
-  document.getElementById('wave-status').textContent = 'TX';
-  document.getElementById('wave-status').className = 'wave-status tx';
 }
 
 function stopTx() {
   if (!transmitting) return;
   transmitting = false;
-
-  // Silence the audio via gain node
-  if (gainNode) {
-    gainNode.gain.value = 0;
-    console.log('[AUDIO] gain=0, muted');
-  }
-
+  if (localStream) localStream.getTracks().forEach(t => t.enabled = false);
   send({ type: 'ptt-stop' });
-  addFeedItem(myName || 'You', 'speak');
-
   document.getElementById('ptt-btn').classList.remove('tx');
   document.getElementById('ptt-outer').classList.remove('tx');
   document.getElementById('ptt-hint').textContent = 'Everyone in the room will hear you';
@@ -413,112 +223,67 @@ function stopTx() {
   setWave(null);
 }
 
-// ── JOIN MAIN ROOM ──────────────────────────
-function joinMain() {
+// ── JOIN ──
+async function joinMain() {
   const name = document.getElementById('name-input').value.trim();
-  if (!name) {
-    document.getElementById('name-input').focus();
-    showToast('Enter your name first');
-    return;
-  }
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    showToast('Not connected — state: ' + (ws ? ws.readyState : 'none'));
-    return;
-  }
+  if (!name) { showToast('Enter your name'); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { showToast('Not connected yet'); return; }
   myName = name;
   localStorage.setItem('breaker-name', name);
+  // Get mic first so it's included in WebRTC offer
+  try { await getMic(); } catch(e) { console.error('mic error', e); }
+  // Disable tracks until PTT pressed
+  if (localStream) localStream.getTracks().forEach(t => t.enabled = false);
   send({ type: 'join-room', code: 'BREAKER', peerName: name });
-}
-
-// ── ROOM ACTIONS ─────────────────────────
-async function createRoom() {
-  const name = document.getElementById('create-name-input').value.trim();
-  if (!name) { showToast('Enter a room name'); return; }
-  myName = document.getElementById('name-input').value.trim() || 'User';
-  await getMic();
-  send({ type: 'create-room', name, peerName: myName });
-  document.getElementById('create-name-input').value = '';
-}
-
-async function joinByCode() {
-  const code = document.getElementById('join-code-input').value.trim().toUpperCase();
-  if (!code) { showToast('Enter a room code'); return; }
-  myName = document.getElementById('name-input').value.trim() || 'User';
-  await getMic();
-  send({ type: 'join-room', code, peerName: myName });
-  document.getElementById('join-code-input').value = '';
 }
 
 function leaveRoom() {
   send({ type: 'leave-room' });
+  peers.forEach((_, id) => closePeer(id));
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   currentRoom = null;
-  window._wasInRoom = false; // don't auto-rejoin after manual leave
-  releaseMic();
+  window._wasInRoom = false;
   setWave(null);
   showScreen('screen-rooms');
 }
 
-function copyInviteLink() {
-  if (!currentRoom) return;
-  const link = `${window.location.origin}?room=${currentRoom.code}`;
-  navigator.clipboard?.writeText(link).then(() => {
-    const btn = document.getElementById('share-btn');
-    const orig = btn.innerHTML;
-    btn.innerHTML = '<svg class="share-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> LINK COPIED!';
-    setTimeout(() => { btn.innerHTML = orig; }, 2200);
-  });
-}
-
-// ── UI HELPERS ───────────────────────────
+// ── UI ──
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 
 function renderRoom(room) {
-  // room-title removed from simplified UI - skip safely
-  const titleEl = document.getElementById('room-title');
-  if (titleEl) titleEl.textContent = 'BREAKER';
+  const el = document.getElementById('room-title');
+  if (el) el.textContent = 'BREAKER';
   updateMembers(room);
-  const histList = document.getElementById('history-list');
-  if (histList) histList.innerHTML = '';
-  const histCount = document.getElementById('hist-count');
-  if (histCount) histCount.textContent = '0 / 10';
 }
 
 function updateMembers(room) {
   if (!room) return;
-  const nameEl = document.getElementById('name-input');
-  const selfLetter = (nameEl ? nameEl.value.trim()[0] : myName[0] || '?').toUpperCase();
-  const allMembers = [
-    { name: myName || 'You', initial: selfLetter },
-    ...room.members.filter(m => m.id !== myId)
-  ];
+  const selfLetter = (myName[0] || '?').toUpperCase();
+  const all = [{ name: myName, initial: selfLetter },
+    ...(room.members || []).filter(m => m.id !== myId)];
   const container = document.getElementById('room-avatars');
   if (!container) return;
   container.innerHTML = '';
-  allMembers.slice(0, 6).forEach(m => {
+  all.slice(0, 6).forEach(m => {
     const av = document.createElement('div');
     av.className = 'avatar';
     av.textContent = (m.name[0] || '?').toUpperCase();
-    av.title = m.name;
-    av.style.cursor = 'pointer';
-    // Tap to show full name
-    av.addEventListener('click', () => showMemberName(m.name));
+    av.onclick = () => showMemberName(m.name);
     container.appendChild(av);
   });
-  const countEl = document.getElementById('room-member-count');
-  if (countEl) countEl.textContent = allMembers.length;
+  const cnt = document.getElementById('room-member-count');
+  if (cnt) cnt.textContent = all.length;
 }
 
 function showSpeaking(name, active) {
-  const statusEl = document.getElementById('wave-status');
-  if (active) {
-    setWave('rx');
-    statusEl.textContent = name.toUpperCase();
-    statusEl.className   = 'wave-status rx';
-  } else {
-    setWave(null);
+  setWave(active ? 'rx' : null);
+  const ws2 = document.getElementById('wave-status');
+  if (ws2) {
+    ws2.textContent = active ? name.toUpperCase() : 'IDLE';
+    ws2.className = active ? 'wave-status rx' : 'wave-status';
   }
 }
 
@@ -527,233 +292,89 @@ function setWave(mode) {
     b.classList.remove('tx', 'rx');
     if (mode) b.classList.add(mode);
   });
-  if (!mode) {
-    document.getElementById('wave-status').textContent = 'IDLE';
-    document.getElementById('wave-status').className   = 'wave-status';
-  }
+  const ws2 = document.getElementById('wave-status');
+  if (!mode && ws2) { ws2.textContent = 'IDLE'; ws2.className = 'wave-status'; }
 }
 
-function addFeedItem(name, type) {
-  // Just log to console - UI removed
-  console.log('[FEED]', name, type);
-}
-
-function updateConnectionStatus(connected) {
+function updateStatus(connected) {
   const dot = document.getElementById('conn-dot');
   const lbl = document.getElementById('conn-label');
-  if (dot && lbl) {
-    dot.style.background = connected ? '#39ff8a' : '#ff4545';
-    dot.style.boxShadow  = connected ? '0 0 6px #39ff8a' : '0 0 6px #ff4545';
-    lbl.textContent      = connected ? 'LIVE' : 'RECONNECTING';
-  }
+  if (dot) { dot.style.background = connected ? '#39ff8a' : '#ff4545'; dot.style.boxShadow = connected ? '0 0 6px #39ff8a' : '0 0 6px #ff4545'; }
+  if (lbl) lbl.textContent = connected ? 'LIVE' : 'RECONNECTING';
 }
 
-function updateConnectionLabel(text) {
-  const lbl = document.getElementById('conn-label');
-  const dot = document.getElementById('conn-dot');
-  if (lbl) lbl.textContent = text;
-  if (dot) { dot.style.background = '#ffb830'; dot.style.boxShadow = '0 0 6px #ffb830'; }
-}
-
-// ── NAME SYNC ────────────────────────────
-document.getElementById('name-input').addEventListener('input', () => {
-  const val = document.getElementById('name-input').value.trim();
-  const l = (val[0] || '?').toUpperCase();
-  document.getElementById('self-av').textContent = l;
-  document.getElementById('av-self').textContent = l;
-  if (val) localStorage.setItem('breaker-name', val);
-});
-
-// ── DEEP LINK ────────────────────────────
-(function () {
-  const params = new URLSearchParams(window.location.search);
-  const code   = params.get('room');
-  if (!code) return;
-  window.history.replaceState({}, '', '/');
-  // Store code and auto-join once WS connects
-  window._pendingRoomCode = code.toUpperCase();
-  document.getElementById('join-code-input').value = code.toUpperCase();
-})();
-
-// ── TOAST ────────────────────────────────
-let toastTimer;
+// ── MEMBER NAME ──
 function showMemberName(name) {
-  // Remove existing
   document.getElementById('member-popup')?.remove();
   const el = document.createElement('div');
   el.id = 'member-popup';
   el.textContent = name;
-  el.style.cssText = `
-    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-    background:#141816; border:2px solid #39ff8a; color:#39ff8a;
-    font-family:'Bebas Neue',sans-serif; font-size:1.8rem; letter-spacing:4px;
-    padding:18px 32px; border-radius:16px; z-index:999;
-    box-shadow:0 0 30px rgba(57,255,138,0.2);
-    pointer-events:none;
-  `;
+  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#141816;border:2px solid #39ff8a;color:#39ff8a;font-family:"Bebas Neue",sans-serif;font-size:1.8rem;letter-spacing:4px;padding:18px 32px;border-radius:16px;z-index:999;pointer-events:none;';
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 2000);
 }
 
+// ── TOAST ──
+let toastT;
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
-// ── PWA SERVICE WORKER ───────────────────
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(console.error);
+// ── SHARE ──
+function copyInviteLink() {
+  const link = window.location.origin;
+  navigator.clipboard?.writeText(link).then(() => showToast('Link copied!'));
 }
 
-// ── SERVER ROOM LIST ────────────────────────
-function renderServerRooms(rooms) {
-  const container = document.getElementById('rooms-container');
-  const countEl   = document.getElementById('room-count');
-
-  // Merge server rooms with locally saved rooms
-  const savedRooms = getSavedRooms();
-  const allRooms = [...rooms];
-  savedRooms.forEach(r => {
-    if (!allRooms.find(x => x.code === r.code)) {
-      allRooms.push({ ...r, memberCount: 0, offline: true });
-    }
-  });
-
-  countEl.textContent = allRooms.length === 1 ? '1 room' : `${allRooms.length} rooms`;
-
-  if (allRooms.length === 0) {
-    container.innerHTML = '<div class="empty-rooms">NO ACTIVE ROOMS<br>CREATE ONE ABOVE</div>';
-    return;
-  }
-
-  container.innerHTML = '';
-  allRooms.forEach(room => {
-    const el = document.createElement('div');
-    el.className = 'room-item';
-    const isOffline = room.offline || (room.memberCount === 0 && !rooms.find(r => r.code === room.code));
-    el.innerHTML = `
-      <div class="room-icon" style="opacity:${isOffline ? 0.5 : 1}">${room.name[0].toUpperCase()}</div>
-      <div class="room-body">
-        <span class="room-name">${room.name}</span>
-        <span class="room-meta" style="color:${isOffline ? '#4a5a52' : ''}">
-          ${isOffline ? 'SAVED — TAP TO REJOIN' : '<span class="dot">●</span>' + (room.memberCount || 0) + ' members'}
-        </span>
-      </div>
-      <div class="code-badge">${room.code}</div>
-    `;
-    el.addEventListener('click', () => {
-      const name = document.getElementById('name-input').value.trim();
-      if (!name) { showToast('Enter your name first'); document.getElementById('name-input').focus(); return; }
-      myName = name;
-      navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-        .then(() => send({ type: 'join-room', code: room.code, peerName: name }))
-        .catch(() => showToast('Microphone permission required'));
-    });
-    container.appendChild(el);
+// ── PWA ──
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); deferredPrompt = e;
+  document.getElementById('install-banner')?.classList.add('show');
+});
+function installPWA() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(() => {
+    deferredPrompt = null;
+    document.getElementById('install-banner')?.classList.remove('show');
   });
 }
 
-// ── JOIN MODAL (for share link flow) ────────
-function showJoinModal(code) {
-  // Create a simple overlay asking for name
-  const overlay = document.createElement('div');
-  overlay.id = 'join-modal';
-  overlay.style.cssText = `
-    position:fixed;inset:0;z-index:500;
-    background:rgba(0,0,0,0.85);
-    display:flex;align-items:center;justify-content:center;
-    padding:24px;font-family:'Share Tech Mono',monospace;
-  `;
-  overlay.innerHTML = `
-    <div style="background:#141816;border:1px solid #1a5c3a;border-radius:20px;padding:28px;width:100%;max-width:320px;display:flex;flex-direction:column;gap:16px;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:4px;color:#39ff8a;">JOIN ROOM</div>
-      <div style="font-size:0.85rem;color:#a0c0ae;line-height:1.5;">You've been invited to join a room. Enter your name to jump in.</div>
-      <input id="modal-name" type="text" placeholder="Your name…" maxlength="18"
-        style="background:#1a1e1c;border:1px solid #232e28;border-radius:10px;padding:13px 16px;font-size:1rem;color:#eef5f0;outline:none;font-family:'DM Sans',sans-serif;width:100%;"
-      />
-      <button onclick="doModalJoin('${code}')"
-        style="background:#39ff8a;color:#0a0f0d;border:none;border-radius:10px;padding:14px;font-family:'Share Tech Mono',monospace;font-size:0.8rem;letter-spacing:2px;cursor:pointer;font-weight:700;">
-        JOIN NOW
-      </button>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  setTimeout(() => document.getElementById('modal-name')?.focus(), 100);
-}
-
-function doModalJoin(code) {
-  const nameEl = document.getElementById('modal-name');
-  const name = nameEl?.value.trim() || '';
-  if (!name) { nameEl?.focus(); return; }
-  // Set name in main input too
-  document.getElementById('name-input').value = name;
-  document.getElementById('self-av').textContent = name[0].toUpperCase();
-  document.getElementById('av-self').textContent = name[0].toUpperCase();
-  myName = name;
-  // Remove modal
-  document.getElementById('join-modal')?.remove();
-  // Join
-  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-    .then(() => send({ type: 'join-room', code, peerName: name }))
-    .catch(() => showToast('Microphone permission required'));
-}
-
-// ── ROOM STORAGE ─────────────────────────
-function saveRoomToStorage(room) {
-  // Save last room for auto-rejoin
-  localStorage.setItem('breaker-last-room', JSON.stringify({
-    code: room.code,
-    name: room.name,
-  }));
-  // Save to room list
-  const rooms = getSavedRooms();
-  if (!rooms.find(r => r.code === room.code)) {
-    rooms.unshift({ code: room.code, name: room.name });
-    if (rooms.length > 10) rooms.pop();
-    localStorage.setItem('breaker-rooms', JSON.stringify(rooms));
-  }
-}
-
-function getSavedRooms() {
-  try { return JSON.parse(localStorage.getItem('breaker-rooms') || '[]'); } catch { return []; }
-}
-
-function loadLastRoom() {
-  try { return JSON.parse(localStorage.getItem('breaker-last-room')); } catch { return null; }
-}
-
-// ── MIC LIFECYCLE ────────────────────────
-// Release mic whenever page is hidden (user switches apps)
-// Re-acquire when they come back to the room
-document.addEventListener('visibilitychange', async () => {
-  if (document.hidden) {
-    // Silence gain but don't release — avoids mic indicator flicker
-    if (gainNode) gainNode.gain.value = 0;
+// ── MIC RELEASE ──
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && localStream) {
+    localStream.getTracks().forEach(t => t.enabled = false);
     if (transmitting) stopTx();
   }
 });
-
 window.addEventListener('pagehide', () => {
   if (localStream) localStream.getTracks().forEach(t => t.stop());
 });
 
-// ── RESTORE STATE ON LOAD ─────────────────
-(function restoreState() {
-  // Clear any stale room data — we only use BREAKER now
-  localStorage.removeItem('breaker-last-room');
-  localStorage.removeItem('breaker-rooms');
+// ── SERVICE WORKER ──
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-  const savedName = localStorage.getItem('breaker-name');
-  if (savedName) {
-    document.getElementById('name-input').value = savedName;
-    document.getElementById('self-av').textContent = savedName[0].toUpperCase();
-    document.getElementById('av-self').textContent = savedName[0].toUpperCase();
-    myName = savedName;
+// ── RESTORE NAME ──
+const savedName = localStorage.getItem('breaker-name');
+if (savedName) {
+  document.getElementById('name-input').value = savedName;
+  document.getElementById('self-av').textContent = savedName[0].toUpperCase();
+  myName = savedName;
+}
+
+document.getElementById('name-input').addEventListener('input', () => {
+  const v = document.getElementById('name-input').value.trim();
+  if (v) {
+    document.getElementById('self-av').textContent = v[0].toUpperCase();
+    localStorage.setItem('breaker-name', v);
+    myName = v;
   }
-})();
+});
 
-// ── INIT ─────────────────────────────────
+// ── START ──
 connectWS();
