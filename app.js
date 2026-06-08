@@ -356,16 +356,20 @@ function showMemberName(name) {
   setTimeout(() => el.remove(), 2000);
 }
 
-// ── STATUS DISPLAY ──
+// ── LOG PANEL ──
+const logLines = [];
 function showStatus(msg) {
-  let el = document.getElementById('conn-status');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'conn-status';
-    el.style.cssText = 'position:fixed;bottom:80px;left:0;right:0;text-align:center;font-family:"Share Tech Mono",monospace;font-size:0.7rem;color:#ffb830;z-index:500;padding:4px;pointer-events:none;';
-    document.body.appendChild(el);
-  }
-  el.textContent = msg;
+  const time = new Date().toISOString().substring(11,23);
+  const line = time + ' ' + msg;
+  logLines.push(line);
+  if (logLines.length > 100) logLines.shift();
+  console.log('[LOG]', line);
+  const el = document.getElementById('log-panel');
+  if (el) el.textContent = logLines.slice(-12).join('\n');
+}
+function copyLog() {
+  navigator.clipboard?.writeText(logLines.join('\n'))
+    .then(() => alert('Log copied to clipboard!'));
 }
 
 // ── TOAST ──
