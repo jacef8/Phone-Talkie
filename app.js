@@ -213,6 +213,7 @@ async function handleSignal(msg) {
 // ── WEBRTC ───────────────────────────────
 async function getMic() {
   if (localStream) return localStream;
+  console.log('[MIC] acquiring mic...');
   localStream = await navigator.mediaDevices.getUserMedia({
     audio: {
       echoCancellation: true,
@@ -221,11 +222,18 @@ async function getMic() {
     },
     video: false
   });
+  // Disable immediately so no mic indicator shows
+  localStream.getAudioTracks().forEach(t => {
+    t.enabled = false;
+    console.log('[MIC] track disabled:', t.label);
+  });
+  console.log('[MIC] mic ready, tracks disabled');
   return localStream;
 }
 
 function releaseMic() {
   if (!localStream) return;
+  console.log('[MIC] releasing mic');
   localStream.getTracks().forEach(t => t.stop());
   localStream = null;
 }
@@ -240,12 +248,16 @@ function createPeerConnection(peerId) {
   };
 
   pc.ontrack = ({ streams: [stream] }) => {
+    console.log('[AUDIO] ontrack fired for peer', peerId, 'stream tracks:', stream.getTracks().length);
     streams.set(peerId, stream);
     playRemoteStream(stream, peerId);
   };
 
   pc.onconnectionstatechange = () => {
-    console.log(`Peer ${peerId}: ${pc.connectionState}`);
+    console.log(`[AUDIO] Peer ${peerId}: ${pc.connectionState}`);
+  };
+  pc.oniceconnectionstatechange = () => {
+    console.log(`[AUDIO] ICE ${peerId}: ${pc.iceConnectionState}`);
   };
 
   // Add local mic track if available (may not be yet — added on first PTT)
@@ -260,24 +272,28 @@ function createPeerConnection(peerId) {
 }
 
 async function createOffer(peerId) {
-  await getMic();
-  const pc = createPeerConnection(peerId); // adds localStream tracks
+  console.log('[AUDIO] createOffer for', peerId);
+  await getMic(); // gets mic with tracks disabled
+  const pc = createPeerConnection(peerId); // adds disabled tracks to connection
+  console.log('[AUDIO] senders:', pc.getSenders().length);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   send({ type: 'offer', targetId: peerId, sdp: pc.localDescription });
-  // Release mic immediately — will be re-acquired on PTT press
-  releaseMic();
+  console.log('[AUDIO] offer sent');
+  // Do NOT release mic - keep stream alive for replaceTrack on PTT
 }
 
 async function handleOffer(msg) {
-  await getMic();
-  const pc = createPeerConnection(msg.fromId); // adds localStream tracks
+  console.log('[AUDIO] handleOffer from', msg.fromId);
+  await getMic(); // gets mic with tracks disabled
+  const pc = createPeerConnection(msg.fromId); // adds disabled tracks
+  console.log('[AUDIO] senders:', pc.getSenders().length);
   await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   send({ type: 'answer', targetId: msg.fromId, sdp: pc.localDescription });
-  // Release mic immediately — will be re-acquired on PTT press
-  releaseMic();
+  console.log('[AUDIO] answer sent');
+  // Do NOT release mic - keep stream alive
 }
 
 async function handleAnswer(msg) {
@@ -367,33 +383,24 @@ function startTx(e) {
   if (e) e.preventDefault();
   if (!currentRoom) return;
 
-  getMic().then(() => {
-    // Replace tracks in all existing peer connections
-    const trackPromises = [];
-    peers.forEach((pc) => {
-      if (localStream) {
-        pc.getSenders().forEach(sender => {
-          if (sender.track && sender.track.kind === 'audio') {
-            const newTrack = localStream.getAudioTracks()[0];
-            if (newTrack) trackPromises.push(sender.replaceTrack(newTrack));
-          }
-        });
-      }
-    });
-    Promise.all(trackPromises).then(() => doStartTx()).catch(() => doStartTx());
-  }).catch(e => {
-    console.error('Mic error:', e);
-    showToast('Tap Allow when browser asks for microphone');
+  if (!localStream) {
+    showToast('Microphone not ready — try leaving and rejoining');
+    return;
+  }
+
+  // Just enable the existing tracks that are already in the peer connection
+  localStream.getAudioTracks().forEach(t => {
+    t.enabled = true;
+    console.log('[AUDIO] track enabled:', t.label, 'enabled:', t.enabled);
   });
+  console.log('[AUDIO] tracks enabled, calling doStartTx');
+  doStartTx();
 }
 
 function doStartTx() {
   if (!currentRoom) return;
   transmitting = true;
-
-  if (localStream) {
-    localStream.getAudioTracks().forEach(t => t.enabled = true);
-  }
+  // Tracks already enabled in startTx
 
   send({ type: 'ptt-start' });
 
@@ -410,10 +417,12 @@ function stopTx() {
   if (!transmitting) return;
   transmitting = false;
 
-  // Fully stop and release mic after PTT — clears the mic indicator
+  // Disable tracks (don't stop - we need them for next PTT)
   if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
+    localStream.getAudioTracks().forEach(t => {
+      t.enabled = false;
+      console.log('[AUDIO] track disabled after PTT:', t.label);
+    });
   }
 
   send({ type: 'ptt-stop' });
@@ -828,9 +837,11 @@ function loadLastRoom() {
 // Release mic whenever page is hidden (user switches apps)
 // Re-acquire when they come back to the room
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    releaseMic(); // Always release mic when switching apps
+  if (document.hidden && !currentRoom) {
+    releaseMic();
   }
+  // When in a room, tracks are disabled between PTT presses
+  // so no mic indicator should show
 });
 
 window.addEventListener('pagehide', () => {
