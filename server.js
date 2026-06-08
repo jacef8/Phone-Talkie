@@ -209,6 +209,11 @@ function leaveRoom(ws) {
   }
 }
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`BREAKER signaling server on port ${PORT}`);
+  console.log(`Serving files from: ${__dirname}`);
+  console.log(`cwd: ${process.cwd()}`);
 });
+
+wss.on('error', (err) => console.error('WSS error:', err));
+process.on('uncaughtException', (err) => console.error('Uncaught:', err));
