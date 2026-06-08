@@ -138,6 +138,7 @@ function makePeer(peerId) {
 
   pc.ontrack = ({ streams: [stream] }) => {
     console.log('GOT TRACK from', peerId);
+    showStatus('Got audio from ' + peerId.substring(0,4));
     let audio = audioEls.get(peerId);
     if (!audio) {
       audio = document.createElement('audio');
@@ -150,8 +151,15 @@ function makePeer(peerId) {
     audio.play().catch(console.error);
   };
 
-  pc.onconnectionstatechange = () =>
-    console.log('peer', peerId, pc.connectionState);
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState;
+    console.log('peer', peerId, state);
+    showStatus('Peer: ' + state);
+  };
+  pc.oniceconnectionstatechange = () => {
+    console.log('ICE', peerId, pc.iceConnectionState);
+    showStatus('ICE: ' + pc.iceConnectionState);
+  };
 
   if (localStream) {
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
@@ -312,6 +320,18 @@ function showMemberName(name) {
   el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#141816;border:2px solid #39ff8a;color:#39ff8a;font-family:"Bebas Neue",sans-serif;font-size:1.8rem;letter-spacing:4px;padding:18px 32px;border-radius:16px;z-index:999;pointer-events:none;';
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 2000);
+}
+
+// ── STATUS DISPLAY ──
+function showStatus(msg) {
+  let el = document.getElementById('conn-status');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'conn-status';
+    el.style.cssText = 'position:fixed;bottom:80px;left:0;right:0;text-align:center;font-family:"Share Tech Mono",monospace;font-size:0.7rem;color:#ffb830;z-index:500;padding:4px;pointer-events:none;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
 }
 
 // ── TOAST ──
