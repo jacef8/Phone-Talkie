@@ -36,16 +36,20 @@ function connectWS() {
     wasConnected = true;
     reconnectDelay = 2000;
     updateStatus(true);
-    // Auto-rejoin if we were in a room
+    // Only auto-rejoin if we were previously in the room AND it was a brief reconnect
     const savedName = localStorage.getItem('breaker-name');
-    if (savedName && currentRoom) {
+    if (savedName && currentRoom && window._wasInRoom) {
       myName = savedName;
+      // Close all old peer connections first
+      peers.forEach((_, id) => closePeer(id));
       send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
     }
   };
 
   ws.onclose = () => {
     updateStatus(false);
+    // Clean up all peer connections on disconnect
+    peers.forEach((_, id) => closePeer(id));
     setTimeout(connectWS, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
   };
