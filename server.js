@@ -237,6 +237,7 @@ wss.on('connection', (ws) => {
       case 'offer':
       case 'answer':
       case 'ice-candidate': {
+        console.log(`SIGNAL RECEIVED: ${msg.type} from ${ws.peerId?.substring(0,4)} roomCode=${ws.roomCode}`);
         const room = rooms.get(ws.roomCode);
         if (!room) {
           console.log(`RELAY FAIL: ${msg.type} from ${ws.peerId} - no room (roomCode=${ws.roomCode})`);
