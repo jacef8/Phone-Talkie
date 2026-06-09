@@ -430,8 +430,12 @@ window.addEventListener('pagehide', () => {
   if (localStream) localStream.getTracks().forEach(t => t.stop());
 });
 
-// ── SERVICE WORKER ──
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// ── SERVICE WORKER — unregister to force fresh files ──
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => reg.unregister());
+  });
+}
 
 // ── RESTORE NAME ──
 const savedName = localStorage.getItem('breaker-name');
