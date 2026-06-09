@@ -236,9 +236,31 @@ async function handleAnswer(msg) {
   }
 }
 
+async function flushIceCandidates(peerId) {
+  const pc = peers.get(peerId);
+  const queue = iceCandidateQueue.get(peerId);
+  if (pc && queue && queue.length > 0) {
+    for (const candidate of queue) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        showStatus('Flushed ICE for ' + peerId.substring(0,4));
+      } catch(e) {
+        showStatus('ICE flush error: ' + e.message);
+      }
+    }
+    iceCandidateQueue.delete(peerId);
+  }
+}
+
 async function handleIce(msg) {
   const pc = peers.get(msg.fromId);
   if (pc) {
+    if (!pc.remoteDescription) {
+      if (!iceCandidateQueue.has(msg.fromId)) iceCandidateQueue.set(msg.fromId, []);
+      iceCandidateQueue.get(msg.fromId).push(msg.candidate);
+      showStatus('Queued ICE from ' + msg.fromId.substring(0,4));
+      return;
+    }
     try {
       await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
       showStatus('Added ICE from ' + msg.fromId.substring(0,4) + ' sig:' + pc.signalingState);
@@ -246,10 +268,9 @@ async function handleIce(msg) {
       showStatus('ICE add error: ' + e.message);
     }
   } else {
-    showStatus('No peer for ICE from ' + msg.fromId.substring(0,4) + ' peers:' + peers.size);
+    showStatus('No peer for ICE from ' + msg.fromId.substring(0,4));
   }
 }
-
 function closePeer(peerId) {
   const pc = peers.get(peerId);
   if (pc) { pc.close(); peers.delete(peerId); }
