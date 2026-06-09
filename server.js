@@ -208,6 +208,14 @@ wss.on('connection', (ws) => {
           return;
         }
 
+        // Remove any existing ghost peer with same name
+        room.peers.forEach((existingWs, existingId) => {
+          if (existingWs.peerName === msg.peerName && existingId !== ws.peerId) {
+            console.log(`Removing ghost peer: ${msg.peerName} (${existingId})`);
+            room.peers.delete(existingId);
+          }
+        });
+
         ws.peerName = msg.peerName || 'User';
         ws.roomCode = code;
         room.peers.set(ws.peerId, ws);
