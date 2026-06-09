@@ -71,6 +71,7 @@ const wss = new WebSocketServer({ server });
 
 // rooms: { roomCode: { id, name, peers: Map<peerId, ws> } }
 const rooms = new Map();
+const disconnectTimers = new Map(); // peerId → timer, for grace period reconnects
 
 // ── PERSISTENCE ──────────────────────────
 function saveRooms() {
@@ -286,21 +287,69 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => leaveRoom(ws));
+  ws.on('close', () => leaveRoom(ws, false)); // grace period
   ws.on('error', () => leaveRoom(ws));
 });
 
-function leaveRoom(ws) {
+function leaveRoom(ws, immediate = false) {
   if (!ws.roomCode) return;
   const room = rooms.get(ws.roomCode);
   if (!room) return;
 
+  if (!immediate) {
+    // Grace period — wait 8 seconds before removing, in case they reconnect
+    const peerId = ws.peerId;
+    const roomCode = ws.roomCode;
+    const peerName = ws.peerName;
+    console.log(`${peerName} disconnected — waiting 8s for reconnect...`);
+
+    const timer = setTimeout(() => {
+      // Check if they reconnected with same name
+      const currentRoom = rooms.get(roomCode);
+      if (!currentRoom) return;
+      let reconnected = false;
+      currentRoom.peers.forEach((peerWs) => {
+        if (peerWs.peerName === peerName && peerWs.peerId !== peerId && peerWs.readyState === 1) {
+          reconnected = true;
+        }
+      });
+      if (reconnected) {
+        console.log(`${peerName} reconnected — keeping in room`);
+        return;
+      }
+      // Remove them for real
+      currentRoom.peers.delete(peerId);
+      console.log(`${peerName} removed after grace period`);
+      if (currentRoom.peers.size === 0 && currentRoom.code !== 'BREAKER') {
+        rooms.delete(roomCode);
+        saveRooms();
+        broadcastRoomList();
+      } else {
+        broadcast(currentRoom, {
+          type: 'peer-left',
+          peerId,
+          peerName,
+          room: roomInfo(currentRoom),
+        });
+      }
+      disconnectTimers.delete(peerId);
+    }, 8000);
+
+    disconnectTimers.set(peerId, timer);
+    ws.roomCode = null;
+    return;
+  }
+
+  // Immediate leave (explicit leave-room message)
+  if (disconnectTimers.has(ws.peerId)) {
+    clearTimeout(disconnectTimers.get(ws.peerId));
+    disconnectTimers.delete(ws.peerId);
+  }
   room.peers.delete(ws.peerId);
   ws.roomCode = null;
 
   if (room.peers.size === 0 && room.code !== 'BREAKER') {
     rooms.delete(room.code);
-    console.log(`Room deleted: ${room.code}`);
     saveRooms();
     broadcastRoomList();
   } else {
