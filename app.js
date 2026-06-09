@@ -4,7 +4,7 @@
 
 const SERVER_URL = window.location.hostname === 'localhost'
   ? 'ws://localhost:3000'
-  : 'wss://phone-talkie.onrender.com';
+  : 'wss://phone-talkie-production.up.railway.app';
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -186,21 +186,39 @@ function makePeer(peerId) {
 }
 
 async function createOffer(peerId) {
+  // Get mic first so tracks are in the offer
   await getMic();
+  if (localStream) localStream.getTracks().forEach(t => t.enabled = false);
   const pc = makePeer(peerId);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
+  showStatus('Offer sent to ' + peerId.substring(0,4));
   send({ type: 'offer', targetId: peerId, sdp: pc.localDescription });
 }
 
 async function handleOffer(msg) {
-  await getMic();
+  // Don't require mic to answer — just complete the handshake
+  // Mic will be added when PTT is pressed
   const pc = makePeer(msg.fromId);
   await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
   await flushIceCandidates(msg.fromId);
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
+  showStatus('Sending answer to ' + msg.fromId.substring(0,4));
   send({ type: 'answer', targetId: msg.fromId, sdp: pc.localDescription });
+  showStatus('Answer sent');
+  // Now get mic in background so it's ready for PTT
+  getMic().then(() => {
+    if (localStream) {
+      localStream.getTracks().forEach(t => t.enabled = false);
+      const senders = pc.getSenders();
+      localStream.getTracks().forEach(track => {
+        if (!senders.find(s => s.track?.kind === track.kind)) {
+          pc.addTrack(track, localStream);
+        }
+      });
+    }
+  }).catch(console.error);
 }
 
 async function handleAnswer(msg) {
