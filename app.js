@@ -1,7 +1,6 @@
 // BREAKER — app.js
-const SERVER_URL = window.location.hostname === 'localhost'
-  ? 'ws://localhost:3000'
-  : 'wss://phone-talkie-production.up.railway.app';
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const SERVER_URL = `${wsProtocol}//${window.location.host}`;
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
