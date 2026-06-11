@@ -59,7 +59,9 @@ function connectWS() {
     reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
   };
 
-  ws.onerror = () => {};
+  ws.onerror = (err) => {
+    console.error('[CRASH] WebSocket Error:', err);
+  };
 
   ws.onmessage = async (e) => {
     let msg;
@@ -437,4 +439,111 @@ function addMessage(msg) {
   el.className = 'msg-item';
   const time = new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   el.innerHTML = `
-    <div class="msg-av">${(msg.name[0]||'?').
+    <div class="msg-av">${(msg.name[0]||'?').toUpperCase()}</div>
+    <div class="msg-body">
+      <div class="msg-name">${msg.name}</div>
+      <div class="msg-meta">${msg.duration}s · ${time}</div>
+    </div>
+    <button class="msg-play" onclick="playMsg('${msg.url}',this)">▶</button>`;
+  list.insertBefore(el, list.firstChild);
+  while (list.children.length > 10) list.removeChild(list.lastChild);
+}
+
+let currentAudio = null;
+function playMsg(url, btn) {
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  const audio = new Audio(url);
+  currentAudio = audio;
+  btn.textContent = '■';
+  audio.play();
+  audio.onended = () => { btn.textContent = '▶'; currentAudio = null; };
+  audio.onerror = () => { btn.textContent = '▶'; showToast('Playback failed'); };
+}
+
+// ── MEMBER POPUP ──
+function showMemberName(name) {
+  document.getElementById('member-popup')?.remove();
+  const el = document.createElement('div');
+  el.id = 'member-popup';
+  el.textContent = name;
+  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#141816;border:2px solid #39ff8a;color:#39ff8a;font-family:"Bebas Neue",sans-serif;font-size:1.8rem;letter-spacing:4px;padding:18px 32px;border-radius:16px;z-index:999;pointer-events:none;';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+}
+
+// ── DEBUG LOG ──
+const logLines = [];
+function log(msg) {
+  const time = new Date().toISOString().substring(11,19);
+  logLines.unshift(time + ' ' + msg);
+  if (logLines.length > 20) logLines.pop();
+  console.log('[BREAKER]', msg);
+  const el = document.getElementById('log-panel');
+  if (el) el.textContent = logLines.join('\n');
+}
+function copyLog() {
+  navigator.clipboard?.writeText(logLines.join('\n')).then(() => showToast('Log copied!'));
+}
+
+// ── TOAST ──
+let toastT;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ── NOTIFICATIONS ──
+async function initNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') await Notification.requestPermission();
+}
+
+function sendNotification(title, body) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  if (document.visibilityState === 'visible') return;
+  new Notification(title, { body, tag: 'breaker-ptt', renotify: true });
+}
+
+// ── MIC RELEASE ON HIDE ──
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && transmitting) stopTx();
+});
+window.addEventListener('pagehide', () => {
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
+});
+
+// ── PWA ──
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); deferredPrompt = e;
+  document.getElementById('install-banner')?.classList.add('show');
+});
+function installPWA() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
+}
+
+// ── INIT ──
+const savedName = localStorage.getItem('breaker-name');
+if (savedName) {
+  document.getElementById('name-input').value = savedName;
+  myName = savedName;
+}
+document.getElementById('name-input').addEventListener('input', () => {
+  const v = document.getElementById('name-input').value.trim();
+  if (v) { localStorage.setItem('breaker-name', v); myName = v; }
+});
+
+initNotifications();
+connectWS();
+
+// ── SERVICE WORKER ──
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(console.error);
+}
