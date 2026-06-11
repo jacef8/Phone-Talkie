@@ -21,6 +21,10 @@ let localStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let pttStartTime = 0;
+let hasInteracted = false; 
+let mimeTypeUsed = '';
+let silentAudioContext = null;
+let globalDummyTrack = null;
 const peers = new Map();
 const audioEls = new Map();
 const iceCandidateQueue = new Map();
@@ -40,9 +44,12 @@ function connectWS() {
       document.getElementById('name-input').value = savedName;
       const av = document.getElementById('self-av');
       if (av) av.querySelector('.avatar-circle').textContent = savedName[0].toUpperCase();
-      peers.forEach((_, id) => closePeer(id));
-      currentRoom = null;
-      send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
+      
+      if (hasInteracted) {
+        peers.forEach((_, id) => closePeer(id));
+        currentRoom = null;
+        send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
+      }
     }
   };
 
@@ -70,6 +77,8 @@ function connectWS() {
         break;
 
       case 'peer-joined':
+        if (msg.replacedId) closePeer(msg.replacedId);
+        
         currentRoom = msg.room;
         updateMembers(msg.room);
         showToast(msg.peerName + ' joined');
@@ -112,15 +121,11 @@ function connectWS() {
         addMessage(msg.message);
         break;
 
-      case 'room-list':
-        break;
-
       case 'error':
         if (msg.message === 'Room not found') {
           setTimeout(() => {
-            const n = localStorage.getItem('breaker-name');
-            if (n && ws?.readyState === WebSocket.OPEN)
-              send({ type: 'join-room', code: 'BREAKER', peerName: n });
+            if (myName && ws?.readyState === WebSocket.OPEN)
+              send({ type: 'join-room', code: 'BREAKER', peerName: myName });
           }, 1000);
         }
         break;
@@ -173,25 +178,14 @@ function makePeer(peerId) {
   return pc;
 }
 
-function createDummyTrack() {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const oscillator = ctx.createOscillator();
-  const dst = ctx.createMediaStreamDestination();
-  oscillator.connect(dst);
-  oscillator.start();
-  const track = dst.stream.getAudioTracks()[0];
-  track.enabled = false; 
-  return track;
-}
-
 async function createOffer(peerId) {
   const pc = makePeer(peerId);
-  // Add placeholder software track so replaceTrack works without renegotiation
   try {
-    const dummyTrack = createDummyTrack();
-    const dummyStream = new MediaStream([dummyTrack]);
-    pc.addTrack(dummyTrack, dummyStream);
-  } catch(e) {}
+    if (globalDummyTrack) {
+      const track = globalDummyTrack.clone();
+      pc.addTrack(track, new MediaStream([track]));
+    }
+  } catch(e) { log('Dummy track blocked'); }
   
   const offer = await pc.createOffer({ offerToReceiveAudio: true });
   await pc.setLocalDescription(offer);
@@ -200,12 +194,12 @@ async function createOffer(peerId) {
 
 async function handleOffer(msg) {
   const pc = makePeer(msg.fromId);
-  // Add placeholder software track so replaceTrack works without renegotiation
   try {
-    const dummyTrack = createDummyTrack();
-    const dummyStream = new MediaStream([dummyTrack]);
-    pc.addTrack(dummyTrack, dummyStream);
-  } catch(e) {}
+    if (globalDummyTrack) {
+      const track = globalDummyTrack.clone();
+      pc.addTrack(track, new MediaStream([track]));
+    }
+  } catch(e) { log('Dummy track blocked'); }
   
   await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
   await flushIceCandidates(msg.fromId);
@@ -279,23 +273,31 @@ async function startTx(e) {
   transmitting = true;
   pttStartTime = Date.now();
 
+  mimeTypeUsed = 'audio/webm';
+  if (!MediaRecorder.isTypeSupported(mimeTypeUsed)) {
+    mimeTypeUsed = 'audio/mp4';
+    if (!MediaRecorder.isTypeSupported(mimeTypeUsed)) mimeTypeUsed = '';
+  }
+  const options = mimeTypeUsed ? { mimeType: mimeTypeUsed } : {};
+
   try {
     recordedChunks = [];
-    mediaRecorder = new MediaRecorder(localStream, { mimeType: 'audio/webm' });
+    mediaRecorder = new MediaRecorder(localStream, options);
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
     mediaRecorder.onstop = async () => {
       try {
-        const duration = Math.round((Date.now() - pttStartTime) / 1000);
-        if (duration < 1 || recordedChunks.length === 0) return;
-        const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-        const params = new URLSearchParams({ name: myName, duration, room: 'BREAKER' });
-        await fetch(`/upload?${params}`, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/webm' } });
-      } catch(e) {}
+        const durationMs = Date.now() - pttStartTime;
+        if (durationMs < 400 || recordedChunks.length === 0) return; 
+        const durationSec = Math.max(1, Math.round(durationMs / 1000));
+        const blob = new Blob(recordedChunks, { type: mimeTypeUsed || 'audio/webm' });
+        const params = new URLSearchParams({ name: myName, duration: durationSec, room: 'BREAKER' });
+        await fetch(`/upload?${params}`, { method: 'POST', body: blob });
+      } catch(e) { log('Upload failed'); }
       recordedChunks = [];
       mediaRecorder = null;
     };
     mediaRecorder.start();
-  } catch(e) {}
+  } catch(e) { log('Recorder init failed'); }
 
   send({ type: 'ptt-start' });
   document.getElementById('ptt-btn').classList.add('tx');
@@ -308,6 +310,13 @@ async function startTx(e) {
 function stopTx() {
   if (!transmitting) return;
   transmitting = false;
+
+  if (globalDummyTrack) {
+    peers.forEach((pc) => {
+      const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
+      if (sender) sender.replaceTrack(globalDummyTrack.clone()).catch(console.error);
+    });
+  }
 
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
@@ -332,7 +341,20 @@ async function joinMain() {
   const name = document.getElementById('name-input').value.trim();
   if (!name) { showToast('Enter your name'); return; }
   if (!ws || ws.readyState !== WebSocket.OPEN) { showToast('Not connected yet'); return; }
+  
+  if (!silentAudioContext) {
+    silentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    await silentAudioContext.resume(); 
+    const oscillator = silentAudioContext.createOscillator();
+    const dst = silentAudioContext.createMediaStreamDestination();
+    oscillator.connect(dst);
+    oscillator.start();
+    globalDummyTrack = dst.stream.getAudioTracks()[0];
+    globalDummyTrack.enabled = false; 
+  }
+
   myName = name;
+  hasInteracted = true; 
   localStorage.setItem('breaker-name', name);
   send({ type: 'join-room', code: 'BREAKER', peerName: name });
 }
@@ -416,111 +438,4 @@ function addMessage(msg) {
   el.className = 'msg-item';
   const time = new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   el.innerHTML = `
-    <div class="msg-av">${(msg.name[0]||'?').toUpperCase()}</div>
-    <div class="msg-body">
-      <div class="msg-name">${msg.name}</div>
-      <div class="msg-meta">${msg.duration}s · ${time}</div>
-    </div>
-    <button class="msg-play" onclick="playMsg('${msg.url}',this)">▶</button>`;
-  list.insertBefore(el, list.firstChild);
-  while (list.children.length > 10) list.removeChild(list.lastChild);
-}
-
-let currentAudio = null;
-function playMsg(url, btn) {
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-  const audio = new Audio(url);
-  currentAudio = audio;
-  btn.textContent = '■';
-  audio.play();
-  audio.onended = () => { btn.textContent = '▶'; currentAudio = null; };
-  audio.onerror = () => { btn.textContent = '▶'; showToast('Playback failed'); };
-}
-
-// ── MEMBER POPUP ──
-function showMemberName(name) {
-  document.getElementById('member-popup')?.remove();
-  const el = document.createElement('div');
-  el.id = 'member-popup';
-  el.textContent = name;
-  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#141816;border:2px solid #39ff8a;color:#39ff8a;font-family:"Bebas Neue",sans-serif;font-size:1.8rem;letter-spacing:4px;padding:18px 32px;border-radius:16px;z-index:999;pointer-events:none;';
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2000);
-}
-
-// ── DEBUG LOG ──
-const logLines = [];
-function log(msg) {
-  const time = new Date().toISOString().substring(11,19);
-  logLines.unshift(time + ' ' + msg);
-  if (logLines.length > 20) logLines.pop();
-  console.log('[BREAKER]', msg);
-  const el = document.getElementById('log-panel');
-  if (el) el.textContent = logLines.join('\n');
-}
-function copyLog() {
-  navigator.clipboard?.writeText(logLines.join('\n')).then(() => showToast('Log copied!'));
-}
-
-// ── TOAST ──
-let toastT;
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  if (!t) return;
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(toastT);
-  toastT = setTimeout(() => t.classList.remove('show'), 2400);
-}
-
-// ── NOTIFICATIONS ──
-async function initNotifications() {
-  if (!('Notification' in window)) return;
-  if (Notification.permission === 'default') await Notification.requestPermission();
-}
-
-function sendNotification(title, body) {
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
-  if (document.visibilityState === 'visible') return;
-  new Notification(title, { body, tag: 'breaker-ptt', renotify: true });
-}
-
-// ── MIC RELEASE ON HIDE ──
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden && transmitting) stopTx();
-});
-window.addEventListener('pagehide', () => {
-  if (localStream) localStream.getTracks().forEach(t => t.stop());
-});
-
-// ── PWA ──
-let deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault(); deferredPrompt = e;
-  document.getElementById('install-banner')?.classList.add('show');
-});
-function installPWA() {
-  if (!deferredPrompt) return;
-  deferredPrompt.prompt();
-  deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
-}
-
-// ── INIT ──
-const savedName = localStorage.getItem('breaker-name');
-if (savedName) {
-  document.getElementById('name-input').value = savedName;
-  myName = savedName;
-}
-document.getElementById('name-input').addEventListener('input', () => {
-  const v = document.getElementById('name-input').value.trim();
-  if (v) { localStorage.setItem('breaker-name', v); myName = v; }
-});
-
-initNotifications();
-connectWS();
-
-// ── SERVICE WORKER ──
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(console.error);
-}
+    <div class="msg-av">${(msg.name[0]||'?').
