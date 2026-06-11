@@ -173,8 +173,26 @@ function makePeer(peerId) {
   return pc;
 }
 
+function createDummyTrack() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const oscillator = ctx.createOscillator();
+  const dst = ctx.createMediaStreamDestination();
+  oscillator.connect(dst);
+  oscillator.start();
+  const track = dst.stream.getAudioTracks()[0];
+  track.enabled = false; 
+  return track;
+}
+
 async function createOffer(peerId) {
   const pc = makePeer(peerId);
+  // Add placeholder software track so replaceTrack works without renegotiation
+  try {
+    const dummyTrack = createDummyTrack();
+    const dummyStream = new MediaStream([dummyTrack]);
+    pc.addTrack(dummyTrack, dummyStream);
+  } catch(e) {}
+  
   const offer = await pc.createOffer({ offerToReceiveAudio: true });
   await pc.setLocalDescription(offer);
   send({ type: 'offer', targetId: peerId, sdp: pc.localDescription });
@@ -182,6 +200,13 @@ async function createOffer(peerId) {
 
 async function handleOffer(msg) {
   const pc = makePeer(msg.fromId);
+  // Add placeholder software track so replaceTrack works without renegotiation
+  try {
+    const dummyTrack = createDummyTrack();
+    const dummyStream = new MediaStream([dummyTrack]);
+    pc.addTrack(dummyTrack, dummyStream);
+  } catch(e) {}
+  
   await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
   await flushIceCandidates(msg.fromId);
   const answer = await pc.createAnswer();
@@ -240,33 +265,35 @@ async function startTx(e) {
   if (!currentRoom || transmitting) return;
   try { await getMic(); } catch(err) { showToast('Mic denied'); return; }
 
-  // Add/replace track in all peer connections
   const audioTrack = localStream.getAudioTracks()[0];
-  const renegPromises = [];
-  peers.forEach((pc, peerId) => {
+  peers.forEach((pc) => {
     const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
     if (sender) {
       sender.replaceTrack(audioTrack).catch(console.error);
     } else {
-      pc.addTrack(audioTrack, localStream);
-      renegPromises.push(
-        pc.createOffer().then(o => pc.setLocalDescription(o)).then(() => {
-          send({ type: 'offer', targetId: peerId, sdp: pc.localDescription });
-        }).catch(console.error)
-      );
+      try { pc.addTrack(audioTrack, localStream); } catch(e) {}
     }
   });
-  await Promise.all(renegPromises);
 
   localStream.getTracks().forEach(t => t.enabled = true);
   transmitting = true;
   pttStartTime = Date.now();
 
-  // Record for recent messages
   try {
     recordedChunks = [];
     mediaRecorder = new MediaRecorder(localStream, { mimeType: 'audio/webm' });
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      try {
+        const duration = Math.round((Date.now() - pttStartTime) / 1000);
+        if (duration < 1 || recordedChunks.length === 0) return;
+        const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+        const params = new URLSearchParams({ name: myName, duration, room: 'BREAKER' });
+        await fetch(`/upload?${params}`, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/webm' } });
+      } catch(e) {}
+      recordedChunks = [];
+      mediaRecorder = null;
+    };
     mediaRecorder.start();
   } catch(e) {}
 
@@ -282,29 +309,16 @@ function stopTx() {
   if (!transmitting) return;
   transmitting = false;
 
-  // Stop mic tracks — releases mic indicator
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+
   if (localStream) {
     localStream.getTracks().forEach(t => t.stop());
     localStream = null;
   }
 
   send({ type: 'ptt-stop' });
-
-  // Upload recording
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
-    mediaRecorder.onstop = async () => {
-      try {
-        const duration = Math.round((Date.now() - pttStartTime) / 1000);
-        if (duration < 1 || recordedChunks.length === 0) return;
-        const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-        const params = new URLSearchParams({ name: myName, duration, room: 'BREAKER' });
-        await fetch(`/upload?${params}`, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/webm' } });
-      } catch(e) {}
-      recordedChunks = [];
-      mediaRecorder = null;
-    };
-  }
 
   document.getElementById('ptt-btn').classList.remove('tx');
   document.getElementById('ptt-outer').classList.remove('tx');
@@ -389,7 +403,7 @@ async function loadMessages() {
     const list = document.getElementById('msg-list');
     if (!list) return;
     list.innerHTML = '';
-    msgs.forEach(addMessage);
+    msgs.reverse().forEach(addMessage);
   } catch(e) {}
 }
 
@@ -472,11 +486,6 @@ function sendNotification(title, body) {
   new Notification(title, { body, tag: 'breaker-ptt', renotify: true });
 }
 
-// ── SERVICE WORKER ──
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
-}
-
 // ── MIC RELEASE ON HIDE ──
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && transmitting) stopTx();
@@ -510,3 +519,8 @@ document.getElementById('name-input').addEventListener('input', () => {
 
 initNotifications();
 connectWS();
+
+// ── SERVICE WORKER ──
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(console.error);
+}
