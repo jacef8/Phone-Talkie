@@ -219,4 +219,90 @@ wss.on('connection', (ws) => {
 
     switch (msg.type) {
       case 'create-room': {
-        const code = Math.random().toString(36).substring(2, 8).toUpperCase
+        const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const room = { code, name: msg.name || 'Room', peers: new Map() };
+        rooms.set(code, room);
+        ws.peerName = msg.peerName || 'User'; ws.roomCode = code; room.peers.set(ws.peerId, ws);
+        ws.send(JSON.stringify({ type: 'room-created', room: roomInfo(room, ws.peerId), myId: ws.peerId }));
+        saveRooms(); broadcastRoomList();
+        break;
+      }
+      case 'join-room': {
+        const code = (msg.code || '').toUpperCase();
+        let room = rooms.get(code);
+        if (!room && code === 'BREAKER') { room = { code: 'BREAKER', name: 'BREAKER', peers: new Map() }; rooms.set('BREAKER', room); saveRooms(); }
+        if (!room) { ws.send(JSON.stringify({ type: 'error', message: 'Room not found' })); return; }
+
+        let replacedId = null;
+        room.peers.forEach((existingWs, existingId) => {
+          if (existingWs.peerName === msg.peerName && existingId !== ws.peerId) {
+            replacedId = existingId;
+            room.peers.delete(existingId);
+          }
+        });
+
+        ws.peerName = msg.peerName || 'User'; ws.roomCode = code; room.peers.set(ws.peerId, ws);
+        ws.send(JSON.stringify({ type: 'room-joined', room: roomInfo(room, ws.peerId), myId: ws.peerId, existingPeers: [...room.peers.keys()].filter(id => id !== ws.peerId) }));
+        broadcast(room, { type: 'peer-joined', peerId: ws.peerId, peerName: ws.peerName, replacedId, room: roomInfo(room) }, ws.peerId);
+        break;
+      }
+      case 'offer': case 'answer': case 'ice-candidate': {
+        const room = rooms.get(ws.roomCode);
+        if (!room) return;
+        const target = room.peers.get(msg.targetId);
+        if (target && target.readyState === 1) target.send(JSON.stringify({ ...msg, fromId: ws.peerId, fromName: ws.peerName }));
+        break;
+      }
+      case 'ptt-start': case 'ptt-stop': {
+        const room = rooms.get(ws.roomCode);
+        if (room) broadcast(room, { type: msg.type, peerId: ws.peerId, peerName: ws.peerName }, ws.peerId);
+        break;
+      }
+      case 'leave-room': leaveRoom(ws); break;
+    }
+  });
+
+  ws.on('close', () => leaveRoom(ws, false));
+  ws.on('error', () => leaveRoom(ws));
+});
+
+function leaveRoom(ws, immediate = false) {
+  if (!ws.roomCode) return;
+  const room = rooms.get(ws.roomCode);
+  if (!room) return;
+
+  if (!immediate) {
+    const peerId = ws.peerId; const roomCode = ws.roomCode; const peerName = ws.peerName;
+    const timer = setTimeout(() => {
+      const currentRoom = rooms.get(roomCode);
+      if (!currentRoom) return;
+      let reconnected = false;
+      currentRoom.peers.forEach((peerWs) => { if (peerWs.peerName === peerName && peerWs.peerId !== peerId && peerWs.readyState === 1) reconnected = true; });
+      if (reconnected) return;
+      currentRoom.peers.delete(peerId);
+      if (currentRoom.peers.size === 0 && currentRoom.code !== 'BREAKER') { rooms.delete(roomCode); saveRooms(); broadcastRoomList(); } 
+      else broadcast(currentRoom, { type: 'peer-left', peerId, peerName, room: roomInfo(currentRoom) });
+      disconnectTimers.delete(peerId);
+    }, 8000);
+    disconnectTimers.set(peerId, timer);
+    ws.roomCode = null;
+    return;
+  }
+
+  if (disconnectTimers.has(ws.peerId)) { clearTimeout(disconnectTimers.get(ws.peerId)); disconnectTimers.delete(ws.peerId); }
+  room.peers.delete(ws.peerId); ws.roomCode = null;
+  if (room.peers.size === 0 && room.code !== 'BREAKER') { rooms.delete(room.code); saveRooms(); broadcastRoomList(); } 
+  else broadcast(room, { type: 'peer-left', peerId: ws.peerId, peerName: ws.peerName, room: roomInfo(room) });
+}
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[BOOT] BREAKER server is live on port ${PORT}`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH] Uncaught Exception:', err);
+});
+
+wss.on('error', (err) => {
+  console.error('[CRASH] WebSocket Error:', err);
+});
