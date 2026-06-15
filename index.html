@@ -243,8 +243,7 @@
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
 
       <div style="text-align:center;">
-        <img src="/icon-192.png" alt="GROUNDWAVE" style="width:96px;height:96px;border-radius:22px;margin-bottom:12px;box-shadow:0 4px 24px rgba(240,165,0,0.3);">
-        <div style="font-family:var(--display);font-size:3rem;letter-spacing:6px;color:var(--amber);">GROUNDWAVE</div>
+<div style="font-family:var(--display);font-size:3rem;letter-spacing:6px;color:var(--amber);">GROUNDWAVE</div>
         <div style="font-family:var(--mono);font-size:0.75rem;color:var(--muted);letter-spacing:2px;margin-top:4px;">PUSH TO TALK</div>
       </div>
 
@@ -299,10 +298,11 @@
   </div>
 
   <!-- ══ ROOM SCREEN ══ -->
-  <div class="screen" id="screen-room">
+  <div class="screen" id="screen-room" style="background-image:repeating-radial-gradient(ellipse at 20% 30%, transparent 0px, transparent 38px, rgba(240,165,0,0.07) 39px, transparent 40px), repeating-radial-gradient(ellipse at 80% 70%, transparent 0px, transparent 55px, rgba(240,165,0,0.07) 56px, transparent 57px), repeating-radial-gradient(ellipse at 50% 50%, transparent 0px, transparent 25px, rgba(240,165,0,0.05) 26px, transparent 27px);">
 
     <div class="header">
-      <div class="logo">GROUNDWAVE</div>
+      <button onclick="leaveRoom()" style="background:transparent;border:none;color:var(--muted);font-family:var(--mono);font-size:0.7rem;letter-spacing:1px;padding:5px 8px;cursor:pointer;display:flex;align-items:center;gap:4px;">← LEAVE</button>
+      <div class="logo" style="font-size:1.4rem;">GROUNDWAVE</div>
       <div style="display:flex;align-items:center;gap:8px;">
         <button onclick="shareApp()" style="background:transparent;border:1px solid var(--green-dim);color:var(--green);font-family:var(--mono);font-size:0.6rem;letter-spacing:1px;padding:5px 10px;border-radius:20px;cursor:pointer;">⬆ INVITE</button>
         <div class="live-pill"><div class="live-dot"></div>LIVE</div>
