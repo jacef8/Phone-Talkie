@@ -1,11 +1,11 @@
 {
-  "name": "BREAKER",
-  "short_name": "BREAKER",
-  "description": "Push-to-talk walkie talkie",
+  "name": "GROUNDWAVE",
+  "short_name": "GROUNDWAVE",
+  "description": "Push-to-talk group radio",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d0f0e",
-  "theme_color": "#39ff8a",
+  "background_color": "#0d1117",
+  "theme_color": "#f0a500",
   "orientation": "portrait",
   "icons": [
     {
