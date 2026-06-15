@@ -42,13 +42,17 @@ function connectWS() {
       if (hasInteracted) {
         peers.forEach((_, id) => closePeer(id));
         currentRoom = null;
-        send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
+        // Small delay so server grace period can recognize the reconnect
+        setTimeout(() => {
+          send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
+        }, 500);
       }
     }
   };
 
   ws.onclose = () => {
     updateStatus(false);
+    window._disconnectedAt = Date.now();
     peers.forEach((_, id) => closePeer(id));
     setTimeout(connectWS, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
@@ -276,6 +280,13 @@ async function startTx(e) {
   document.getElementById('ptt-hint').textContent = '● TRANSMITTING';
   document.getElementById('ptt-hint').className = 'ptt-hint tx';
   setWave('tx');
+
+  // Safety net — if touch is lost (call interrupt, notification, etc) stop TX
+  const safetyStop = () => { if (transmitting) stopTx(); };
+  document.addEventListener('touchcancel', safetyStop, { once: true });
+  document.addEventListener('pointercancel', safetyStop, { once: true });
+  // Max transmission time 60 seconds
+  window._pttSafety = setTimeout(safetyStop, 60000);
 }
 
 function stopTx() {
@@ -284,6 +295,7 @@ function stopTx() {
 
   // Send stop signal FIRST before anything can fail
   send({ type: 'ptt-stop' });
+  clearTimeout(window._pttSafety);
 
   // Swap back to dummy track
   if (globalDummyTrack) {
