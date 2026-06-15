@@ -517,6 +517,7 @@ document.getElementById('name-input').addEventListener('input', () => {
 
 initNotifications();
 connectWS();
+checkInstallTip();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(console.error);
