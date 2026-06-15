@@ -223,9 +223,7 @@
 <div class="app">
 
   <!-- ══ ENTRY SCREEN ══ -->
-  <div class="screen active" id="screen-rooms" style="background:url(/splash.png) center center/cover no-repeat;position:relative;">
-    <div style="position:absolute;inset:0;background:rgba(13,17,23,0.72);z-index:0;"></div>
-    <div style="position:relative;z-index:1;display:flex;flex-direction:column;height:100%;">
+  <div class="screen active" id="screen-rooms" style="background:url(/splash.png) center center/cover no-repeat;">
 
     <div class="header">
       <div class="logo">GROUNDWAVE</div>
@@ -261,6 +259,10 @@
         JOIN
       </button>
 
+      <button onclick="shareApp()" style="width:100%;padding:12px;font-size:0.78rem;letter-spacing:3px;background:transparent;border:1px solid var(--amber);color:var(--amber);font-family:var(--mono);border-radius:10px;cursor:pointer;">
+        ⬆ SHARE / INVITE
+      </button>
+
       <div id="install-tip" style="display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;width:100%;box-sizing:border-box;">
         <div style="font-family:var(--display);font-size:1rem;color:var(--green);letter-spacing:2px;margin-bottom:8px;">📲 INSTALL GROUNDWAVE</div>
 
@@ -275,167 +277,4 @@
         <!-- iOS: manual steps -->
         <div id="install-tip-ios" style="display:none;font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.8;">
           <strong style="color:var(--text);">iPhone / iPad:</strong> Open in <strong style="color:var(--green);">Safari</strong>, then tap<br>
-          <strong style="color:var(--green);">Share ⬆</strong> → <strong style="color:var(--green);">Add to Home Screen</strong> → <strong style="color:var(--green);">Add</strong><br>
-          <span style="color:#666;">Must use Safari — Chrome on iOS cannot install apps</span>
-        </div>
-
-        <!-- Already installed -->
-        <div id="install-tip-installed" style="display:none;font-family:var(--mono);font-size:0.65rem;color:var(--muted);">
-          Share GROUNDWAVE with your group so they can install it too.
-        </div>
-
-        <button onclick="document.getElementById('install-tip').style.display='none'" style="margin-top:10px;background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:0.6rem;cursor:pointer;padding:0;text-decoration:underline;">Close</button>
-      </div>
-
-
-    </div>
-
-    <input id="join-code-input" type="hidden" value="GROUNDWAVE"/>
-    <input id="create-name-input" type="hidden"/>
-    <div id="rooms-container" style="display:none"></div>
-    <span id="room-count" style="display:none"></span>
-    </div>
-  </div>
-
-  <!-- ══ ROOM SCREEN ══ -->
-  <div class="screen" id="screen-room" style="background-image:repeating-radial-gradient(ellipse at 20% 30%, transparent 0px, transparent 38px, rgba(240,165,0,0.14) 39px, transparent 40px), repeating-radial-gradient(ellipse at 80% 70%, transparent 0px, transparent 55px, rgba(240,165,0,0.14) 56px, transparent 57px), repeating-radial-gradient(ellipse at 50% 50%, transparent 0px, transparent 25px, rgba(240,165,0,0.10) 26px, transparent 27px);">
-
-    <div class="header">
-      <button onclick="leaveRoom()" style="background:rgba(240,165,0,0.12);border:1px solid var(--amber);color:var(--amber);font-family:var(--mono);font-size:0.75rem;letter-spacing:2px;padding:8px 14px;cursor:pointer;border-radius:8px;">← LEAVE</button>
-      <div class="logo" style="font-size:1.4rem;">GROUNDWAVE</div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <button onclick="shareApp()" style="background:rgba(240,165,0,0.12);border:1px solid var(--amber);color:var(--amber);font-family:var(--mono);font-size:0.75rem;letter-spacing:2px;padding:8px 14px;cursor:pointer;border-radius:8px;">⬆ SHARE</button>
-        <div class="live-pill"><div class="live-dot"></div>LIVE</div>
-      </div>
-    </div>
-
-    <div class="members-row">
-      <div class="avatars" id="room-avatars">
-        <div class="avatar" id="av-self"><div class="avatar-circle">?</div><div class="avatar-name" id="av-self-name">You</div></div>
-      </div>
-      <div class="members-right">
-        <strong id="room-member-count">1</strong>
-        IN ROOM
-      </div>
-    </div>
-
-    <div class="waveform-row">
-      <div class="waveform" id="waveform">
-        <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-        <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-        <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-        <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-        <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-        <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-      </div>
-      <div class="wave-status" id="wave-status">IDLE</div>
-    </div>
-
-    <!-- Recent Messages -->
-    <div style="flex:1;min-height:0;overflow:hidden;">
-      <div class="msg-section-label">RECENT TRANSMISSIONS</div>
-      <div class="msg-list" id="msg-list"></div>
-    </div>
-
-    <div class="ptt-section">
-      <div class="ptt-outer" id="ptt-outer">
-        <div class="ring"></div>
-        <div class="ring"></div>
-        <div class="ring"></div>
-        <div class="ptt-btn" id="ptt-btn"
-          onpointerdown="startTx(event)" onpointerup="stopTx()"
-          onpointerleave="stopTx()" onpointercancel="stopTx()"
-          style="touch-action:none;user-select:none;">
-          <svg class="ptt-mic" viewBox="0 0 24 24">
-            <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
-            <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
-            <line x1="12" y1="19" x2="12" y2="22"/>
-            <line x1="8" y1="22" x2="16" y2="22"/>
-          </svg>
-          <span class="ptt-sub">Hold to talk</span>
-        </div>
-      </div>
-      <div class="ptt-hint" id="ptt-hint">Everyone in the room will hear you</div>
-    </div>
-
-    <!-- Debug log -->
-    <div style="background:#0a0f0a;border:1px solid #1a3a1a;border-radius:8px;padding:8px;margin-top:4px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <span style="font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:#4a5a52;letter-spacing:2px;">DEBUG</span>
-        <button onclick="copyLog()" style="font-family:'Share Tech Mono',monospace;font-size:0.6rem;background:#2a1f00;border:1px solid #3a2a00;color:#f0a500;border-radius:4px;padding:2px 8px;cursor:pointer;">COPY</button>
-      </div>
-      <pre id="log-panel" style="font-family:'Share Tech Mono',monospace;font-size:0.58rem;color:#ffb830;margin:0;white-space:pre-wrap;word-break:break-all;max-height:80px;overflow-y:auto;"></pre>
-    </div>
-
-  </div>
-
-</div>
-
-<div class="toast" id="toast"></div>
-
-<script src="/app.js"></script>
-<script>
-  // ── PWA Install prompt ──
-  let deferredPrompt = null;
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    document.getElementById('install-banner').classList.add('show');
-  });
-  function installPWA() {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    deferredPrompt.userChoice.then(() => {
-      deferredPrompt = null;
-      document.getElementById('install-banner').classList.remove('show');
-    });
-  }
-  window.addEventListener('appinstalled', () => {
-    document.getElementById('install-banner').classList.remove('show');
-  });
-
-  // ── Local room list (client-side cache) ──
-  const localRooms = [];
-  const origRenderRoom = window.renderRoom;
-  window.renderRoom = function(room) {
-    origRenderRoom && origRenderRoom(room);
-    // Add to local list if not already there
-    if (!localRooms.find(r => r.code === room.code)) {
-      localRooms.push(room);
-      renderLocalRooms();
-    }
-  };
-
-  function renderLocalRooms() {
-    const container = document.getElementById('rooms-container');
-    const countEl   = document.getElementById('room-count');
-    countEl.textContent = localRooms.length === 1 ? '1 room' : `${localRooms.length} rooms`;
-    if (localRooms.length === 0) {
-      container.innerHTML = '';
-      return;
-    }
-    container.innerHTML = '';
-    localRooms.forEach(room => {
-      const el = document.createElement('div');
-      el.className = 'room-item';
-      el.innerHTML = `
-        <div class="room-icon">${room.name[0].toUpperCase()}</div>
-        <div class="room-body">
-          <span class="room-name">${room.name}</span>
-          <span class="room-meta"><span class="dot">●</span>${room.members.length} members</span>
-        </div>
-        <div class="code-badge">${room.code}</div>
-      `;
-      el.addEventListener('click', () => {
-        // Rejoin the room
-        const name = document.getElementById('name-input').value.trim() || 'User';
-        navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(() => {
-          send({ type: 'join-room', code: room.code, peerName: name });
-        });
-      });
-      container.appendChild(el);
-    });
-  }
-</script>
-</body>
-</html>
+          <strong style="color:var(--green);">Share ⬆</strong> → <strong style="colo
