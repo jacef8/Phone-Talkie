@@ -256,6 +256,32 @@
         JOIN
       </button>
 
+      <div id="install-tip" style="display:none;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;width:100%;box-sizing:border-box;">
+        <div style="font-family:var(--display);font-size:1rem;color:var(--green);letter-spacing:2px;margin-bottom:8px;">📲 INSTALL BREAKER</div>
+
+        <!-- Android: install button -->
+        <div id="install-tip-android" style="display:none;">
+          <button id="install-btn-android" onclick="installPWA()" style="background:var(--green);color:#000;font-family:var(--mono);font-size:0.7rem;letter-spacing:2px;border:none;border-radius:8px;padding:10px 20px;cursor:pointer;width:100%;margin-bottom:8px;font-weight:700;">⬇ INSTALL APP</button>
+          <div id="install-tip-android-manual" style="display:none;font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.8;">
+            In Chrome: tap <strong style="color:var(--green);">⋮</strong> → <strong style="color:var(--green);">Add to Home screen</strong> → <strong style="color:var(--green);">Install</strong>
+          </div>
+        </div>
+
+        <!-- iOS: manual steps -->
+        <div id="install-tip-ios" style="display:none;font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.8;">
+          <strong style="color:var(--text);">iPhone / iPad:</strong> Open in <strong style="color:var(--green);">Safari</strong>, then tap<br>
+          <strong style="color:var(--green);">Share ⬆</strong> → <strong style="color:var(--green);">Add to Home Screen</strong> → <strong style="color:var(--green);">Add</strong><br>
+          <span style="color:#666;">Must use Safari — Chrome on iOS cannot install apps</span>
+        </div>
+
+        <!-- Already installed -->
+        <div id="install-tip-installed" style="display:none;font-family:var(--mono);font-size:0.65rem;color:var(--muted);">
+          Share BREAKER with your group so they can install it too.
+        </div>
+
+        <button onclick="document.getElementById('install-tip').style.display='none'" style="margin-top:10px;background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:0.6rem;cursor:pointer;padding:0;text-decoration:underline;">Close</button>
+      </div>
+
 
     </div>
 
@@ -271,7 +297,10 @@
 
     <div class="header">
       <div class="logo">BREAKER</div>
-      <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button onclick="shareApp()" style="background:transparent;border:1px solid var(--green-dim);color:var(--green);font-family:var(--mono);font-size:0.6rem;letter-spacing:1px;padding:5px 10px;border-radius:20px;cursor:pointer;">⬆ INVITE</button>
+        <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+      </div>
     </div>
 
     <div class="members-row">
