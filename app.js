@@ -1,4 +1,4 @@
-// BREAKER — app.js
+// GROUNDWAVE — app.js
 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const SERVER_URL = `${wsProtocol}//${window.location.host}`;
 
@@ -35,7 +35,7 @@ function connectWS() {
   ws.onopen = () => {
     reconnectDelay = 2000;
     updateStatus(true);
-    const savedName = localStorage.getItem('breaker-name');
+    const savedName = localStorage.getItem('groundwave-name');
     if (savedName) {
       myName = savedName;
       document.getElementById('name-input').value = savedName;
@@ -44,7 +44,7 @@ function connectWS() {
         currentRoom = null;
         // Small delay so server grace period can recognize the reconnect
         setTimeout(() => {
-          send({ type: 'join-room', code: 'BREAKER', peerName: savedName });
+          send({ type: 'join-room', code: 'GROUNDWAVE', peerName: savedName });
         }, 500);
       }
     }
@@ -99,7 +99,7 @@ function connectWS() {
 
       case 'ptt-start':
         showSpeaking(msg.peerName, true);
-        sendNotification('📻 BREAKER', msg.peerName + ' is talking...');
+        sendNotification('📻 GROUNDWAVE', msg.peerName + ' is talking...');
         break;
 
       case 'ptt-stop':
@@ -114,7 +114,7 @@ function connectWS() {
         if (msg.message === 'Room not found') {
           setTimeout(() => {
             if (myName && ws?.readyState === WebSocket.OPEN)
-              send({ type: 'join-room', code: 'BREAKER', peerName: myName });
+              send({ type: 'join-room', code: 'GROUNDWAVE', peerName: myName });
           }, 1000);
         }
         break;
@@ -264,7 +264,7 @@ async function startTx(e) {
         const durationSec = Math.max(1, Math.round(durationMs / 1000));
         const finalMime = mediaRecorder.mimeType || 'audio/webm';
         const blob = new Blob(recordedChunks, { type: finalMime });
-        const params = new URLSearchParams({ name: myName, duration: durationSec, room: 'BREAKER' });
+        const params = new URLSearchParams({ name: myName, duration: durationSec, room: 'GROUNDWAVE' });
         const response = await fetch(`/upload?${params}`, { method: 'POST', body: blob });
         if (!response.ok) log('Upload failed: ' + response.status);
       } catch(e) { log('Upload error: ' + e.message); }
@@ -342,8 +342,8 @@ async function joinMain() {
 
   myName = name;
   hasInteracted = true;
-  localStorage.setItem('breaker-name', name);
-  send({ type: 'join-room', code: 'BREAKER', peerName: name });
+  localStorage.setItem('groundwave-name', name);
+  send({ type: 'join-room', code: 'GROUNDWAVE', peerName: name });
 }
 
 function leaveRoom() {
@@ -457,7 +457,7 @@ function log(msg) {
   const time = new Date().toISOString().substring(11,19);
   logLines.unshift(time + ' ' + msg);
   if (logLines.length > 20) logLines.pop();
-  console.log('[BREAKER]', msg);
+  console.log('[GROUNDWAVE]', msg);
   const el = document.getElementById('log-panel');
   if (el) el.textContent = logLines.join('\n');
 }
@@ -484,7 +484,7 @@ function sendNotification(title, body) {
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   if (document.visibilityState === 'visible') return;
-  new Notification(title, { body, tag: 'breaker-ptt', renotify: true });
+  new Notification(title, { body, tag: 'groundwave-ptt', renotify: true });
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -505,14 +505,14 @@ function installPWA() {
   deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
 }
 
-const savedName = localStorage.getItem('breaker-name');
+const savedName = localStorage.getItem('groundwave-name');
 if (savedName) {
   document.getElementById('name-input').value = savedName;
   myName = savedName;
 }
 document.getElementById('name-input').addEventListener('input', () => {
   const v = document.getElementById('name-input').value.trim();
-  if (v) { localStorage.setItem('breaker-name', v); myName = v; }
+  if (v) { localStorage.setItem('groundwave-name', v); myName = v; }
 });
 
 initNotifications();
