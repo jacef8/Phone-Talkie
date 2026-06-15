@@ -6,23 +6,23 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="GROUNDWAVE" />
-<meta name="theme-color" content="#39ff8a" />
+<meta name="theme-color" content="#f0a500" />
 <link rel="manifest" href="/manifest.json" />
 <title>GROUNDWAVE</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --bg: #0d0f0e;
-    --panel: #141816;
-    --panel2: #1a1e1c;
-    --panel3: #202624;
-    --green: #39ff8a;
-    --green-dim: #1a5c3a;
-    --green-faint: rgba(57,255,138,0.06);
-    --amber: #ffb830;
-    --text: #eef5f0;
-    --muted: #a0c0ae;
-    --border: #232e28;
+    --bg:        #0d1117;
+    --panel:     #161b22;
+    --panel2:    #0d1117;
+    --panel3:    #1c2128;
+    --green:     #f0a500;
+    --green-dim: #2a1f00;
+    --green-faint: rgba(240,165,0,0.06);
+    --amber:     #f0a500;
+    --text:      #e6edf3;
+    --muted:     #8b949e;
+    --border:    #30363d;
     --mono: 'Share Tech Mono', monospace;
     --display: 'Bebas Neue', sans-serif;
     --body: 'DM Sans', sans-serif;
@@ -223,7 +223,9 @@
 <div class="app">
 
   <!-- ══ ENTRY SCREEN ══ -->
-  <div class="screen active" id="screen-rooms">
+  <div class="screen active" id="screen-rooms" style="background:url(/splash.png) center center/cover no-repeat;position:relative;">
+    <div style="position:absolute;inset:0;background:rgba(13,17,23,0.72);z-index:0;"></div>
+    <div style="position:relative;z-index:1;display:flex;flex-direction:column;height:100%;">
 
     <div class="header">
       <div class="logo">GROUNDWAVE</div>
@@ -241,7 +243,8 @@
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
 
       <div style="text-align:center;">
-        <div style="font-family:var(--display);font-size:3rem;letter-spacing:6px;color:var(--green);text-shadow:0 0 20px rgba(57,255,138,0.35);">GROUNDWAVE</div>
+        <img src="/icon-192.png" alt="GROUNDWAVE" style="width:96px;height:96px;border-radius:22px;margin-bottom:12px;box-shadow:0 4px 24px rgba(240,165,0,0.3);">
+        <div style="font-family:var(--display);font-size:3rem;letter-spacing:6px;color:var(--amber);">GROUNDWAVE</div>
         <div style="font-family:var(--mono);font-size:0.75rem;color:var(--muted);letter-spacing:2px;margin-top:4px;">PUSH TO TALK</div>
       </div>
 
@@ -292,7 +295,7 @@
     <input id="create-name-input" type="hidden"/>
     <div id="rooms-container" style="display:none"></div>
     <span id="room-count" style="display:none"></span>
-
+    </div>
   </div>
 
   <!-- ══ ROOM SCREEN ══ -->
@@ -359,7 +362,7 @@
     <div style="background:#0a0f0a;border:1px solid #1a3a1a;border-radius:8px;padding:8px;margin-top:4px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
         <span style="font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:#4a5a52;letter-spacing:2px;">DEBUG</span>
-        <button onclick="copyLog()" style="font-family:'Share Tech Mono',monospace;font-size:0.6rem;background:#1a3a1a;border:1px solid #1a5c3a;color:#39ff8a;border-radius:4px;padding:2px 8px;cursor:pointer;">COPY</button>
+        <button onclick="copyLog()" style="font-family:'Share Tech Mono',monospace;font-size:0.6rem;background:#2a1f00;border:1px solid #3a2a00;color:#f0a500;border-radius:4px;padding:2px 8px;cursor:pointer;">COPY</button>
       </div>
       <pre id="log-panel" style="font-family:'Share Tech Mono',monospace;font-size:0.58rem;color:#ffb830;margin:0;white-space:pre-wrap;word-break:break-all;max-height:80px;overflow-y:auto;"></pre>
     </div>
