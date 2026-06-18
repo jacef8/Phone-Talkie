@@ -42,9 +42,9 @@ function connectWS() {
       if (hasInteracted) {
         peers.forEach((_, id) => closePeer(id));
         currentRoom = null;
-        // Small delay so server grace period can recognize the reconnect
+        const savedRoom = localStorage.getItem('groundwave-room') || 'GROUNDWAVE';
         setTimeout(() => {
-          send({ type: 'join-room', code: 'GROUNDWAVE', peerName: savedName });
+          send({ type: 'join-room', code: savedRoom, peerName: savedName });
         }, 500);
       }
     }
@@ -77,6 +77,7 @@ function connectWS() {
       case 'peer-joined':
         if (msg.replacedId) closePeer(msg.replacedId);
         currentRoom = msg.room;
+        updateOnlineList(msg.room);
         updateMembers(msg.room);
         showToast(msg.peerName + ' joined');
         await createOffer(msg.peerId);
@@ -84,6 +85,7 @@ function connectWS() {
 
       case 'peer-left':
         currentRoom = msg.room;
+        updateOnlineList(msg.room);
         updateMembers(msg.room);
         showToast(msg.peerName + ' left');
         closePeer(msg.peerId);
@@ -112,10 +114,8 @@ function connectWS() {
 
       case 'error':
         if (msg.message === 'Room not found') {
-          setTimeout(() => {
-            if (myName && ws?.readyState === WebSocket.OPEN)
-              send({ type: 'join-room', code: 'GROUNDWAVE', peerName: myName });
-          }, 1000);
+          showToast('Channel not found');
+          showScreen('screen-rooms');
         }
         break;
     }
@@ -321,10 +321,15 @@ function stopTx() {
   setWave(null);
 }
 
-async function joinMain() {
+async function joinMain(roomCode) {
   const name = document.getElementById('name-input').value.trim();
   if (!name) { showToast('Enter your name'); return; }
   if (!ws || ws.readyState !== WebSocket.OPEN) { showToast('Not connected yet'); return; }
+
+  // Get room name — either passed in (from list) or from input
+  const roomInput = document.getElementById('room-name-input');
+  const code = (roomCode || (roomInput ? roomInput.value.trim() : '') || 'GROUNDWAVE').toUpperCase();
+  if (!code) { showToast('Enter a channel name'); return; }
 
   // Create AudioContext dummy track on user gesture
   if (!silentAudioContext) {
@@ -343,7 +348,8 @@ async function joinMain() {
   myName = name;
   hasInteracted = true;
   localStorage.setItem('groundwave-name', name);
-  send({ type: 'join-room', code: 'GROUNDWAVE', peerName: name });
+  localStorage.setItem('groundwave-room', code);
+  send({ type: 'join-room', code, peerName: name });
 }
 
 function leaveRoom() {
@@ -362,6 +368,46 @@ function showScreen(id) {
 }
 
 function renderRoom(room) { updateMembers(room); }
+
+function renderRoomList(rooms) {
+  const list = document.getElementById('room-list');
+  if (!list) return;
+  const active = (rooms || []).filter(r => r.memberCount > 0);
+  if (active.length === 0) {
+    list.innerHTML = '<div style="font-size:0.75rem;color:#8b949e;text-align:center;padding:12px;">No active channels</div>';
+    return;
+  }
+  list.innerHTML = active.map(r => `
+    <div style="display:flex;align-items:center;justify-content:space-between;background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:13px 14px;">
+      <div>
+        <div style="font-family:'Inter',sans-serif;font-size:0.95rem;color:#ffffff;font-weight:600;">${r.name}</div>
+        <div style="font-family:'Inter',sans-serif;font-size:0.68rem;color:#39c057;margin-top:2px;">● ${r.memberCount} online</div>
+      </div>
+      <button type="button" onclick="joinMain('${r.code}')"
+        style="background:#f0a500;color:#000;font-family:'Inter',sans-serif;font-size:0.78rem;font-weight:700;padding:8px 18px;border:none;border-radius:8px;cursor:pointer;">
+        Join
+      </button>
+    </div>
+  `).join('');
+}
+
+function updateOnlineList(room) {
+  const list = document.getElementById('online-list');
+  if (!list) return;
+  const members = room ? room.members || [] : [];
+  if (members.length === 0) {
+    list.innerHTML = '<div style="font-family:\'Inter\',sans-serif;font-size:0.75rem;color:#8b949e;text-align:center;padding:12px;">No one else online yet</div>';
+    return;
+  }
+  list.innerHTML = members.map(m => `
+    <div style="display:flex;align-items:center;justify-content:space-between;background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:13px 14px;">
+      <div>
+        <div style="font-family:'Inter',sans-serif;font-size:0.95rem;color:#ffffff;font-weight:600;">${m.name}</div>
+        <div style="font-family:'Inter',sans-serif;font-size:0.68rem;color:#39c057;margin-top:2px;">● online</div>
+      </div>
+    </div>
+  `).join('');
+}
 
 function updateMembers(room) {
   if (!room) return;
@@ -397,8 +443,10 @@ function setWave(mode) {
 function updateStatus(connected) {
   const dot = document.getElementById('conn-dot');
   const lbl = document.getElementById('conn-label');
-  if (dot) { dot.style.background = connected ? '#39ff8a' : '#ff4545'; dot.style.boxShadow = connected ? '0 0 6px #39ff8a' : '0 0 6px #ff4545'; }
-  if (lbl) lbl.textContent = connected ? 'LIVE' : 'RECONNECTING';
+  const txt = document.getElementById('conn-dot-txt');
+  if (dot) { dot.style.background = connected ? '#f0a500' : '#ff4545'; dot.style.boxShadow = connected ? '0 0 6px #f0a500' : '0 0 6px #ff4545'; }
+  if (lbl) lbl.textContent = connected ? 'Live' : 'Reconnecting';
+  if (txt) { txt.textContent = '●'; txt.style.color = connected ? '#f0a500' : '#ff4545'; }
 }
 
 async function loadMessages() {

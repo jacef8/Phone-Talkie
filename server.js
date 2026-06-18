@@ -57,7 +57,7 @@ async function handleUpload(req, res) {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const name = url.searchParams.get('name') || 'Unknown';
       const duration = parseInt(url.searchParams.get('duration') || '0');
-      const room = url.searchParams.get('room') || 'BREAKER';
+      const room = url.searchParams.get('room') || 'GROUNDWAVE';
       const filename = `${Date.now()}-${Math.random().toString(36).substring(2,8)}.webm`;
       
       const command = new PutObjectCommand({
@@ -134,16 +134,12 @@ function loadRooms() {
 }
 
 loadRooms();
-if (!rooms.has('BREAKER')) {
-  rooms.set('BREAKER', { code: 'BREAKER', name: 'BREAKER', peers: new Map() });
-  saveRooms();
-}
 
 function getRoomList() { return [...rooms.values()].map(r => ({ code: r.code, name: r.name, memberCount: r.peers.size })); }
 
 function broadcastRoomList() {
   const list = JSON.stringify({ type: 'room-list', rooms: getRoomList() });
-  wss.clients.forEach(c => { if (c.readyState === 1 && !c.roomCode) c.send(list); });
+  wss.clients.forEach(c => { if (c.readyState === 1) c.send(list); });
 }
 
 function broadcast(room, message, excludeId = null) {
@@ -177,7 +173,7 @@ wss.on('connection', (ws) => {
         const code = Math.random().toString(36).substring(2, 8).toUpperCase();
         const room = { code, name: msg.name || 'Room', peers: new Map() };
         rooms.set(code, room);
-        ws.peerName = msg.peerName || 'User'; ws.roomCode = code; room.peers.set(ws.peerId, ws);
+        ws.peerName = msg.peerName || 'User'; ws.roomCode = code; room.peers.set(ws.peerId, ws); broadcastRoomList();
         ws.send(JSON.stringify({ type: 'room-created', room: roomInfo(room, ws.peerId), myId: ws.peerId }));
         saveRooms(); broadcastRoomList();
         break;
@@ -185,13 +181,18 @@ wss.on('connection', (ws) => {
       case 'join-room': {
         const code = (msg.code || '').toUpperCase();
         let room = rooms.get(code);
-        if (!room && code === 'BREAKER') { room = { code: 'BREAKER', name: 'BREAKER', peers: new Map() }; rooms.set('BREAKER', room); saveRooms(); }
-        if (!room) { ws.send(JSON.stringify({ type: 'error', message: 'Room not found' })); return; }
+        // Auto-create room if it doesn't exist
+        if (!room) {
+          room = { code, name: msg.roomName || code, peers: new Map() };
+          rooms.set(code, room);
+          saveRooms();
+          console.log(`Room auto-created: ${code}`);
+        }
         let replacedId = null;
         room.peers.forEach((existingWs, existingId) => {
           if (existingWs.peerName === msg.peerName && existingId !== ws.peerId) { replacedId = existingId; room.peers.delete(existingId); }
         });
-        ws.peerName = msg.peerName || 'User'; ws.roomCode = code; room.peers.set(ws.peerId, ws);
+        ws.peerName = msg.peerName || 'User'; ws.roomCode = code; room.peers.set(ws.peerId, ws); broadcastRoomList();
         ws.send(JSON.stringify({ type: 'room-joined', room: roomInfo(room, ws.peerId), myId: ws.peerId, existingPeers: [...room.peers.keys()].filter(id => id !== ws.peerId) }));
         broadcast(room, { type: 'peer-joined', peerId: ws.peerId, peerName: ws.peerName, replacedId, room: roomInfo(room) }, ws.peerId);
         console.log(`${ws.peerName} joined: ${code}`);
@@ -230,7 +231,7 @@ function leaveRoom(ws, immediate = false) {
       currentRoom.peers.forEach((peerWs) => { if (peerWs.peerName === peerName && peerWs.peerId !== peerId && peerWs.readyState === 1) reconnected = true; });
       if (reconnected) return;
       currentRoom.peers.delete(peerId);
-      if (currentRoom.peers.size === 0 && currentRoom.code !== 'BREAKER') { rooms.delete(roomCode); saveRooms(); broadcastRoomList(); }
+      if (currentRoom.peers.size === 0 && currentRoom.code !== 'GROUNDWAVE') { rooms.delete(roomCode); saveRooms(); broadcastRoomList(); }
       else broadcast(currentRoom, { type: 'peer-left', peerId, peerName, room: roomInfo(currentRoom) });
       disconnectTimers.delete(peerId);
     }, 60000);
@@ -240,12 +241,12 @@ function leaveRoom(ws, immediate = false) {
   }
   if (disconnectTimers.has(ws.peerId)) { clearTimeout(disconnectTimers.get(ws.peerId)); disconnectTimers.delete(ws.peerId); }
   room.peers.delete(ws.peerId); ws.roomCode = null;
-  if (room.peers.size === 0 && room.code !== 'BREAKER') { rooms.delete(room.code); saveRooms(); broadcastRoomList(); }
-  else broadcast(room, { type: 'peer-left', peerId: ws.peerId, peerName: ws.peerName, room: roomInfo(room) });
+  if (room.peers.size === 0 && room.code !== 'GROUNDWAVE') { rooms.delete(room.code); saveRooms(); broadcastRoomList(); }
+  broadcastRoomList(); broadcast(room, { type: 'peer-left', peerId: ws.peerId, peerName: ws.peerName, room: roomInfo(room) });
 }
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[BOOT] BREAKER server is live on port ${PORT}`);
+  console.log(`[BOOT] GROUNDWAVE server is live on port ${PORT}`);
   console.log(`Serving files from: ${BASE}`);
 });
 process.on('uncaughtException', (err) => console.error('[CRASH] Uncaught Exception:', err));
