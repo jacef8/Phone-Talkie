@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="color-scheme" content="light">
+<title>Sketchroom</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sketchroom">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%231a1a1a'/%3E%3Cpath d='M80 420L180 100L280 260L360 160L440 420Z' fill='white' stroke='white' stroke-width='20' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.json">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{color-scheme:light only}
+body{background:#f5f4f0;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── SCREENS ── */
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;background:#f5f4f0;z-index:10}
+.screen.hidden{display:none}
+
+/* ── IDENTITY SCREEN ── */
+#identity-screen{align-items:center;justify-content:center;padding:1.5rem}
+.id-wrap{display:flex;flex-direction:column;align-items:center;gap:2rem;width:100%;max-width:400px}
+.brand{text-align:center}
+.brand-mark{display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:#1a1a1a;border-radius:16px;margin-bottom:1rem}
+.brand-mark svg{width:28px;height:28px}
+.brand h1{font-size:2rem;font-weight:800;letter-spacing:-.04em}
+.brand p{font-size:.9rem;color:#8a8880;margin-top:.25rem;font-weight:500}
+.id-card{background:#fff;border:1px solid #e4e2dc;border-radius:20px;padding:2rem;width:100%;box-shadow:0 2px 16px rgba(0,0,0,.06)}
+.fl{display:block;font-size:.72rem;font-weight:700;color:#8a8880;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem}
+.fi{width:100%;background:#f5f4f0;border:1.5px solid #e4e2dc;border-radius:10px;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif;font-size:.95rem;font-weight:600;padding:.7rem .9rem;outline:none;margin-bottom:1.25rem;-webkit-appearance:none}
+.fi:focus{border-color:#1a1a1a}
+.fi::placeholder{color:#c5c3bc;font-weight:500}
+.avatar-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:.4rem;margin-bottom:1.5rem}
+.av-btn{aspect-ratio:1;background:#f5f4f0;border:1.5px solid #e4e2dc;border-radius:10px;font-size:1.35rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s}
+.av-btn:hover{border-color:#aaa;transform:scale(1.05)}
+.av-btn.sel{border-color:#1a1a1a;background:#f0eeea}
+.primary-btn{width:100%;background:#1a1a1a;color:#fff;border:none;border-radius:12px;padding:.85rem;font-family:'Plus Jakarta Sans',sans-serif;font-size:.95rem;font-weight:700;cursor:pointer;transition:opacity .15s}
+.primary-btn:active{opacity:.8}
+
+/* ── LOBBY SCREEN ── */
+#lobby-screen{padding:0}
+.lobby-header{height:56px;background:#fff;border-bottom:1px solid #e4e2dc;display:flex;align-items:center;padding:0 1rem;gap:.75rem;flex-shrink:0}
+.lh-brand{display:flex;align-items:center;gap:.5rem}
+.lh-logo{width:28px;height:28px;background:#1a1a1a;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.lh-logo svg{width:14px;height:14px}
+.lh-name{font-weight:800;font-size:.95rem;letter-spacing:-.02em}
+.lh-right{margin-left:auto;display:flex;align-items:center;gap:.5rem}
+.lh-avatar{font-size:1.2rem;background:#f5f4f0;border:1.5px solid #e4e2dc;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
+.lh-user{font-size:.75rem;font-weight:700;color:#8a8880}
+.switch-btn{background:transparent;border:1px solid #e4e2dc;border-radius:8px;color:#8a8880;font-family:'Plus Jakarta Sans',sans-serif;font-size:.72rem;font-weight:700;padding:.3rem .65rem;cursor:pointer}
+.switch-btn:hover{background:#f5f4f0}
+
+.lobby-body{flex:1;overflow-y:auto;padding:1.5rem}
+.lobby-section-title{font-size:.72rem;font-weight:700;color:#8a8880;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.75rem}
+
+/* create room card */
+.create-card{background:#fff;border:1px solid #e4e2dc;border-radius:16px;padding:1.25rem;margin-bottom:1.5rem;box-shadow:0 1px 6px rgba(0,0,0,.04)}
+.create-row{display:flex;gap:.5rem;align-items:center}
+.create-input{flex:1;background:#f5f4f0;border:1.5px solid #e4e2dc;border-radius:10px;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif;font-size:.9rem;font-weight:600;padding:.6rem .85rem;outline:none;-webkit-appearance:none}
+.create-input:focus{border-color:#1a1a1a}
+.create-input::placeholder{color:#c5c3bc;font-weight:500}
+.create-btn{background:#1a1a1a;color:#fff;border:none;border-radius:10px;padding:.6rem 1rem;font-family:'Plus Jakarta Sans',sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;white-space:nowrap}
+.create-btn:active{opacity:.8}
+
+/* room cards */
+.rooms-list{display:flex;flex-direction:column;gap:.6rem}
+.room-card{background:#fff;border:1px solid #e4e2dc;border-radius:14px;padding:1rem 1.1rem;display:flex;align-items:center;gap:.85rem;cursor:pointer;transition:all .12s;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.room-card:hover{border-color:#bbb;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.room-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0}
+.room-info{flex:1;min-width:0}
+.room-name{font-weight:700;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.room-meta{font-size:.72rem;color:#8a8880;margin-top:.15rem}
+.room-avatars{display:flex;gap:2px;align-items:center;flex-shrink:0}
+.room-av{font-size:.95rem;background:#f5f4f0;border:1.5px solid #e4e2dc;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center}
+.join-room-btn{background:#f5f4f0;border:1px solid #e4e2dc;border-radius:8px;color:#1a1a1a;font-family:'Plus Jakarta Sans',sans-serif;font-size:.72rem;font-weight:700;padding:.3rem .7rem;cursor:pointer;flex-shrink:0}
+.join-room-btn:hover{background:#e8e6e0}
+.no-rooms{text-align:center;padding:2.5rem 1rem;color:#8a8880;font-size:.85rem;font-weight:600}
+.no-rooms span{display:block;font-size:2rem;margin-bottom:.5rem}
+.share-room-card{background:#fff;border:1px solid #e4e2dc;border-radius:14px;padding:1rem 1.1rem;display:flex;align-items:center;gap:.85rem;margin-bottom:1rem;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.share-room-card .room-info{flex:1}
+.share-room-card .room-name{font-weight:700;font-size:.88rem}
+.share-room-card .room-meta{font-size:.72rem;color:#8a8880;margin-top:.1rem}
+.share-room-btn-lg{background:#1a1a1a;color:#fff;border:none;border-radius:8px;padding:.4rem .85rem;font-family:'Plus Jakarta Sans',sans-serif;font-size:.75rem;font-weight:700;cursor:pointer;flex-shrink:0}
+.share-room-btn-lg:active{opacity:.8}
+
+/* ── CANVAS SCREEN ── */
+#canvas-screen{flex-direction:column}
+header{height:52px;background:#fff;border-bottom:1px solid #e4e2dc;display:flex;align-items:center;padding:0 .6rem;gap:.4rem;flex-shrink:0}
+.hlogo{width:28px;height:28px;background:#1a1a1a;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.hlogo svg{width:14px;height:14px}
+.hname{font-weight:800;font-size:.95rem;letter-spacing:-.02em}
+@media(max-width:480px){.hname{display:none}}
+.rpill{font-size:.68rem;font-weight:700;color:#8a8880;background:#f5f4f0;border:1px solid #e4e2dc;border-radius:20px;padding:.18rem .5rem;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hright{margin-left:auto;display:flex;align-items:center;gap:.35rem}
+#user-stack{display:flex;gap:3px;align-items:center}
+.mini-av{width:26px;height:26px;background:#f5f4f0;border:1.5px solid #e4e2dc;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.82rem;flex-shrink:0}
+#conn-dot{width:7px;height:7px;border-radius:50%;background:#ccc;transition:background .3s;flex-shrink:0}
+#conn-dot.on{background:#22c55e}
+.leave-btn{background:transparent;border:1px solid #e4e2dc;border-radius:8px;color:#8a8880;font-family:'Plus Jakarta Sans',sans-serif;font-size:.7rem;font-weight:700;padding:.28rem .5rem;cursor:pointer;flex-shrink:0;white-space:nowrap}
+.leave-btn:hover{background:#fef2f2;border-color:#fca5a5;color:#e8462a}
+
+/* Two-row toolbar */
+#toolbar{background:#fff;border-bottom:1px solid #e4e2dc;display:flex;flex-direction:column;flex-shrink:0}
+.tb-row{display:flex;align-items:center;padding:0 .5rem;gap:.25rem;min-height:40px}
+.tb-row+.tb-row{border-top:1px solid #f0eeea}
+.tool-btn{background:transparent;border:1px solid transparent;border-radius:8px;color:#8a8880;padding:.28rem .45rem;font-family:'Plus Jakarta Sans',sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:.22rem;transition:all .12s;white-space:nowrap;flex-shrink:0}
+.tool-btn:hover{background:#f5f4f0;color:#1a1a1a}
+.tool-btn.active{background:#f5f4f0;border-color:#e4e2dc;color:#1a1a1a}
+.tool-btn:disabled{opacity:.35;cursor:not-allowed}
+.sep{width:1px;height:20px;background:#e4e2dc;margin:0 .05rem;flex-shrink:0}
+.swatch{width:24px;height:24px;border-radius:50%;border:2.5px solid transparent;cursor:pointer;flex-shrink:0;transition:transform .12s}
+.swatch:hover{transform:scale(1.15)}
+.swatch.active{border-color:#1a1a1a;transform:scale(1.1)}
+#custom-color{width:24px;height:24px;border-radius:50%;border:2px solid #e4e2dc;cursor:pointer;padding:0;background:none;overflow:hidden;outline:none;flex-shrink:0}
+#custom-color::-webkit-color-swatch-wrapper{padding:0}
+#custom-color::-webkit-color-swatch{border:none;border-radius:50%}
+#sz-slider{-webkit-appearance:none;appearance:none;flex:1;max-width:90px;height:3px;background:#e4e2dc;border-radius:2px;outline:none;cursor:pointer}
+#sz-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#1a1a1a;cursor:pointer}
+#sz-label{font-size:.68rem;font-weight:700;color:#8a8880;min-width:28px}
+.clear-btn{margin-left:auto;background:transparent;border:1px solid #e4e2dc;border-radius:8px;color:#8a8880;padding:.25rem .5rem;font-family:'Plus Jakarta Sans',sans-serif;font-size:.7rem;font-weight:700;cursor:pointer;flex-shrink:0}
+.clear-btn:hover{background:#fef2f2;border-color:#fca5a5;color:#e8462a}
+
+#canvas-wrap{flex:1;overflow:hidden;position:relative;background:#fff}
+canvas{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none;background:#fff}
+canvas.erase{cursor:cell}
+
+/* user panel */
+#user-panel{position:absolute;top:8px;right:8px;background:#fff;border:1px solid #e4e2dc;border-radius:12px;padding:.6rem;min-width:160px;box-shadow:0 2px 12px rgba(0,0,0,.08);z-index:20;display:none}
+#user-panel.open{display:block}
+.up-title{font-size:.65rem;font-weight:700;color:#8a8880;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem}
+.up-user{display:flex;align-items:center;gap:.5rem;padding:.35rem .4rem;border-radius:8px;margin-bottom:.2rem}
+.up-user:hover{background:#f5f4f0}
+.up-av{font-size:1rem}
+.up-name{font-size:.78rem;font-weight:700;flex:1}
+.up-kick{background:transparent;border:1px solid #fca5a5;border-radius:6px;color:#e8462a;font-family:'Plus Jakarta Sans',sans-serif;font-size:.62rem;font-weight:700;padding:.15rem .4rem;cursor:pointer}
+.up-kick:hover{background:#fef2f2}
+.up-you{font-size:.62rem;color:#8a8880;font-weight:600}
+
+/* remote cursors */
+.rcursor{position:absolute;pointer-events:none;transform:translate(-50%,-50%);z-index:10;display:flex;flex-direction:column;align-items:center;gap:3px}
+.rcursor-dot{width:10px;height:10px;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.rcursor-label{font-size:.6rem;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;color:white;background:rgba(0,0,0,.5);padding:1px 5px;border-radius:5px;white-space:nowrap}
+
+/* toast */
+#toast{position:fixed;bottom:1.25rem;left:50%;transform:translateX(-50%) translateY(60px);background:#1a1a1a;color:white;font-family:'Plus Jakarta Sans',sans-serif;font-size:.8rem;font-weight:600;padding:.5rem 1.1rem;border-radius:20px;transition:transform .25s ease;pointer-events:none;z-index:300}
+#toast.show{transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- ── SCREEN 1: IDENTITY ── -->
+<div class="screen" id="identity-screen">
+  <div class="id-wrap">
+    <div class="brand">
+      <div class="brand-mark"><svg viewBox="0 0 28 28" fill="none"><path d="M4 22L10 8L16 16L20 11L24 22H4Z" fill="white" stroke="white" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+      <h1>Sketchroom</h1>
+      <p>Draw together, in real time.</p>
+    </div>
+    <div class="id-card">
+      <label class="fl">Your name</label>
+      <input class="fi" id="username" type="text" placeholder="Enter your name" maxlength="20">
+      <label class="fl">Pick an emoji</label>
+      <div class="avatar-grid">
+        <button class="av-btn sel" data-av="🦁" onclick="pickAv(this)">🦁</button>
+        <button class="av-btn" data-av="🐸" onclick="pickAv(this)">🐸</button>
+        <button class="av-btn" data-av="🦊" onclick="pickAv(this)">🦊</button>
+        <button class="av-btn" data-av="🐼" onclick="pickAv(this)">🐼</button>
+        <button class="av-btn" data-av="🐙" onclick="pickAv(this)">🐙</button>
+        <button class="av-btn" data-av="🦋" onclick="pickAv(this)">🦋</button>
+        <button class="av-btn" data-av="🐳" onclick="pickAv(this)">🐳</button>
+        <button class="av-btn" data-av="🦄" onclick="pickAv(this)">🦄</button>
+        <button class="av-btn" data-av="🐻" onclick="pickAv(this)">🐻</button>
+        <button class="av-btn" data-av="🐨" onclick="pickAv(this)">🐨</button>
+      </div>
+      <button class="primary-btn" onclick="saveIdentity()">Continue →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── SCREEN 2: LOBBY ── -->
+<div class="screen hidden" id="lobby-screen">
+  <div class="lobby-header">
+    <div class="lh-brand">
+      <div class="lh-logo"><svg viewBox="0 0 28 28" fill="none"><path d="M4 22L10 8L16 16L20 11L24 22H4Z" fill="white" stroke="white" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+      <span class="lh-name">Sketchroom</span>
+    </div>
+    <div class="lh-right">
+      <div class="lh-avatar" id="lh-avatar-display"></div>
+      <span class="lh-user" id="lh-name-display"></span>
+      <button class="switch-btn" onclick="showIdentity()">Switch</button>
+    </div>
+  </div>
+  <div class="lobby-body">
+    <div class="create-card">
+      <label class="fl">Create or join a room</label>
+      <div class="create-row">
+        <input class="create-input" id="room-input" type="text" placeholder="Room name..." maxlength="40"
+          onkeydown="if(event.key==='Enter') createOrJoinRoom()">
+        <button class="create-btn" onclick="createOrJoinRoom()">Go →</button>
+      </div>
+    </div>
+
+    <div id="share-active-card" style="display:none">
+      <div class="lobby-section-title">Your Current Room</div>
+      <div class="share-room-card">
+        <div style="font-size:1.4rem">🎨</div>
+        <div class="room-info">
+          <div class="room-name" id="share-room-name"></div>
+          <div class="room-meta">Tap Share to invite someone</div>
+        </div>
+        <button class="share-room-btn-lg" onclick="shareLobbyRoom()">⬆ Share</button>
+      </div>
+    </div>
+    <div class="lobby-section-title">Active Rooms</div>
+    <div class="rooms-list" id="rooms-list">
+      <div class="no-rooms"><span>🎨</span>No active rooms yet.<br>Create one above!</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SCREEN 3: CANVAS ── -->
+<div class="screen hidden" id="canvas-screen">
+  <header>
+    <div class="hlogo"><svg viewBox="0 0 28 28" fill="none"><path d="M4 22L10 8L16 16L20 11L24 22H4Z" fill="white" stroke="white" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+    <span class="hname">Sketchroom</span>
+    <span class="rpill" id="room-pill"></span>
+    <div class="hright">
+      <div id="user-stack"></div>
+      <div id="conn-dot"></div>
+      <button class="tool-btn" id="people-btn" onclick="toggleUserPanel()" title="People in room">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        People
+      </button>
+      <button class="leave-btn" id="share-room-btn" onclick="shareRoom()" style="border-color:#e4e2dc;color:#1a1a1a;">⬆ Share</button>
+      <button class="leave-btn" onclick="leaveRoom()">← Lobby</button>
+    </div>
+  </header>
+
+  <div id="toolbar">
+    <!-- Row 1: tools + size + clear -->
+    <div class="tb-row">
+      <button class="tool-btn active" id="btn-draw" onclick="setTool('draw')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>Draw
+      </button>
+      <button class="tool-btn" id="btn-erase" onclick="setTool('erase')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>Erase
+      </button>
+      <button class="tool-btn" id="btn-undo" onclick="undoLast()" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo
+      </button>
+      <div class="sep"></div>
+      <input type="range" id="sz-slider" min="2" max="48" value="5" step="1" oninput="setSize(this.value)">
+      <span id="sz-label">5px</span>
+      <button class="clear-btn" onclick="clearBoard()">Clear all</button>
+    </div>
+    <!-- Row 2: colors -->
+    <div class="tb-row">
+      <div class="swatch active" style="background:#1a1a1a" data-c="#1a1a1a" onclick="setColor(this)"></div>
+      <div class="swatch" style="background:#e8462a" data-c="#e8462a" onclick="setColor(this)"></div>
+      <div class="swatch" style="background:#f97316" data-c="#f97316" onclick="setColor(this)"></div>
+      <div class="swatch" style="background:#eab308" data-c="#eab308" onclick="setColor(this)"></div>
+      <div class="swatch" style="background:#22c55e" data-c="#22c55e" onclick="setColor(this)"></div>
+      <div class="swatch" style="background:#2563eb" data-c="#2563eb" onclick="setColor(this)"></div>
+      <div class="swatch" style="background:#a855f7" data-c="#a855f7" onclick="setColor(this)"></div>
+      <div class="swatch" style="background:#ec4899" data-c="#ec4899" onclick="setColor(this)"></div>
+      <div class="swatch" style="background:#ffffff;border-color:#ccc" data-c="#ffffff" onclick="setColor(this)"></div>
+      <input type="color" id="custom-color" value="#1a1a1a" title="Custom color" onchange="setCustom(this.value)">
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <!-- People panel -->
+    <div id="user-panel">
+      <div class="up-title">In this room</div>
+      <div id="user-panel-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-database-compat.min.js"></script>
+<script>
+const FB = {
+  apiKey: "AIzaSyC1JKhX-mGs7a7cIOtOJA8dOstUznv0f70",
+  authDomain: "whiteboard-8a6c7.firebaseapp.com",
+  databaseURL: "https://whiteboard-8a6c7-default-rtdb.firebaseio.com",
+  projectId: "whiteboard-8a6c7",
+  storageBucket: "whiteboard-8a6c7.firebasestorage.app",
+  messagingSenderId: "884576283390",
+  appId: "1:884576283390:web:dab6d0670dd7a070cdd3af"
+};
+
+firebase.initializeApp(FB);
+const db = firebase.database();
+
+// ── USER IDENTITY ──
+let myId   = 'u' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+let myName = '';
+let myAv   = '🦁';
+
+// ── ROOM STATE ──
+let ROOM = '';
+let base, strokesRef, liveRef, cursorsRef, usersRef, myUserRef, myCursorRef, kickRef;
+
+// ── TOOL STATE ──
+let tool='draw', penColor='#1a1a1a', penSize=5;
+let isDrawing=false, activeStrokeKey=null, activePts=[];
+let myStrokeKeys=[];
+let strokeMap={}, liveMap={};
+const rcursors={};
+let cursorTick=0, liveTick=0;
+let canvas, ctx, dpr=1;
+
+// ── LOBBY STATE ──
+let lobbyRef, lobbyListener;
+let currentRooms = {};
+
+// =========================================================
+// SCREEN MANAGEMENT
+// =========================================================
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+
+// =========================================================
+// IDENTITY
+// =========================================================
+function pickAv(el) {
+  document.querySelectorAll('.av-btn').forEach(b => b.classList.remove('sel'));
+  el.classList.add('sel');
+  myAv = el.dataset.av;
+}
+
+function saveIdentity() {
+  const n = document.getElementById('username').value.trim();
+  if (!n) { document.getElementById('username').focus(); return; }
+  myName = n.slice(0,20);
+  document.getElementById('lh-avatar-display').textContent = myAv;
+  document.getElementById('lh-name-display').textContent = myName;
+  showLobby();
+}
+
+function showIdentity() {
+  show('identity-screen');
+}
+
+// =========================================================
+// LOBBY
+// =========================================================
+function showLobby() {
+  show('lobby-screen');
+  startLobbyListener();
+  // Check for ?room= deep link
+  const params = new URLSearchParams(window.location.search);
+  const roomParam = params.get('room');
+  if (roomParam) {
+    window.history.replaceState({}, '', window.location.pathname);
+    document.getElementById('room-input').value = roomParam;
+    showToast('Tap "Go" to join ' + roomParam);
+  }
+}
+
+function startLobbyListener() {
+  // Listen to all boards and show which have active users
+  if (lobbyListener) db.ref('boards').off('value', lobbyListener);
+  lobbyListener = db.ref('boards').on('value', snap => {
+    currentRooms = {};
+    snap.forEach(roomSnap => {
+      const users = roomSnap.child('users');
+      const count = users.numChildren();
+      if (count > 0) {
+        const avatars = [];
+        users.forEach(u => { avatars.push(u.val().avatar || '👤'); });
+        currentRooms[roomSnap.key] = { count, avatars };
+      }
+    });
+    renderRooms();
+  });
+}
+
+function renderRooms() {
+  const list = document.getElementById('rooms-list');
+  const keys = Object.keys(currentRooms);
+  if (keys.length === 0) {
+    list.innerHTML = '<div class="no-rooms"><span>🎨</span>No active rooms yet.<br>Create one above!</div>';
+    return;
+  }
+  list.innerHTML = '';
+  keys.forEach(name => {
+    const r = currentRooms[name];
+    const card = document.createElement('div');
+    card.className = 'room-card';
+    const avatarHtml = r.avatars.slice(0,5).map(a =>
+      `<div class="room-av">${a}</div>`).join('');
+    card.innerHTML = `
+      <div class="room-dot"></div>
+      <div class="room-info">
+        <div class="room-name">${name}</div>
+        <div class="room-meta">${r.count} person${r.count!==1?'s':''} drawing</div>
+      </div>
+      <div class="room-avatars">${avatarHtml}</div>
+      <button class="join-room-btn">Join</button>
+    `;
+    card.querySelector('.join-room-btn').onclick = (e) => { e.stopPropagation(); enterRoom(name); };
+    card.onclick = () => enterRoom(name);
+    list.appendChild(card);
+  });
+}
+
+function createOrJoinRoom() {
+  const val = document.getElementById('room-input').value.trim();
+  if (!val) { document.getElementById('room-input').focus(); return; }
+  const name = val.toLowerCase().replace(/[^a-z0-9_-]/g,'-').slice(0,40);
+  enterRoom(name);
+}
+
+// =========================================================
+// ENTER / LEAVE ROOM
+// =========================================================
+function enterRoom(name) {
+  ROOM = name;
+
+  // Stop lobby listener to save bandwidth
+  if (lobbyListener) { db.ref('boards').off('value', lobbyListener); lobbyListener = null; }
+
+  base       = db.ref('boards/' + ROOM);
+  strokesRef = base.child('strokes');
+  liveRef    = base.child('live');
+  cursorsRef = base.child('cursors');
+  usersRef   = base.child('users');
+  kickRef    = base.child('kick');
+  myUserRef  = usersRef.child(myId);
+  myCursorRef= cursorsRef.child(myId);
+
+  myUserRef.set({ name: myName, avatar: myAv, ts: firebase.database.ServerValue.TIMESTAMP });
+  myUserRef.onDisconnect().remove();
+  myCursorRef.onDisconnect().remove();
+  liveRef.child(myId).onDisconnect().remove();
+
+  document.getElementById('room-pill').textContent = ROOM;
+  // Update lobby share card
+  document.getElementById('share-room-name').textContent = ROOM;
+  document.getElementById('share-active-card').style.display = 'block';
+  show('canvas-screen');
+  initCanvas();
+  initListeners();
+  showToast('Joined "' + ROOM + '"');
+}
+
+function leaveRoom() {
+  myUserRef   && myUserRef.remove();
+  myCursorRef && myCursorRef.remove();
+  liveRef     && liveRef.child(myId).remove();
+
+  strokesRef && strokesRef.off();
+  liveRef    && liveRef.off();
+  cursorsRef && cursorsRef.off();
+  usersRef   && usersRef.off();
+  kickRef    && kickRef.off();
+  base       && base.child('clear').off();
+  db.ref('.info/connected').off();
+
+  Object.values(rcursors).forEach(el => el.remove());
+  Object.keys(rcursors).forEach(k => delete rcursors[k]);
+
+  strokeMap={}; liveMap={};
+  myStrokeKeys=[]; activePts=[]; isDrawing=false; activeStrokeKey=null;
+  updateUndoBtn();
+  document.getElementById('user-stack').innerHTML='';
+  document.getElementById('user-panel-list').innerHTML='';
+  document.getElementById('user-panel').classList.remove('open');
+  document.getElementById('conn-dot').classList.remove('on');
+  if(ctx){ fillWhite(); }
+
+  showLobby();
+}
+
+// =========================================================
+// KICK
+// =========================================================
+function kickUser(uid, name) {
+  if (!confirm('Remove ' + name + ' from the room?')) return;
+  kickRef.child(uid).set({ ts: firebase.database.ServerValue.TIMESTAMP });
+  // Auto-clean the kick signal after 5s
+  setTimeout(() => kickRef.child(uid).remove(), 5000);
+}
+
+function toggleUserPanel() {
+  document.getElementById('user-panel').classList.toggle('open');
+}
+
+// close panel when clicking canvas
+document.addEventListener('click', e => {
+  const panel = document.getElementById('user-panel');
+  const btn = document.getElementById('people-btn');
+  if (panel && !panel.contains(e.target) && !btn.contains(e.target)) {
+    panel.classList.remove('open');
+  }
+});
+
+// =========================================================
+// CANVAS SETUP
+// =========================================================
+function initCanvas() {
+  canvas = document.getElementById('canvas');
+  ctx = canvas.getContext('2d');
+
+  function resize() {
+    const wrap = document.getElementById('canvas-wrap');
+    dpr = window.devicePixelRatio || 1;
+    canvas.width  = wrap.clientWidth  * dpr;
+    canvas.height = wrap.clientHeight * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    fillWhite(); redrawAll();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  canvas.addEventListener('mousedown',  e => onDown(e));
+  canvas.addEventListener('mousemove',  e => onMove(e));
+  canvas.addEventListener('mouseup',    () => onUp());
+  canvas.addEventListener('mouseleave', () => onUp());
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); onDown(e.touches[0]); }, {passive:false});
+  canvas.addEventListener('touchmove',  e => { e.preventDefault(); onMove(e.touches[0]); }, {passive:false});
+  canvas.addEventListener('touchend',   e => { e.preventDefault(); onUp(); });
+}
+
+function W(){ return canvas.width/dpr; }
+function H(){ return canvas.height/dpr; }
+
+function fillWhite(){
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.restore();
+}
+
+function xy(e){
+  const r=canvas.getBoundingClientRect();
+  return [+((e.clientX-r.left)/r.width).toFixed(4), +((e.clientY-r.top)/r.height).toFixed(4)];
+}
+
+// =========================================================
+// DRAWING
+// =========================================================
+function onDown(e){
+  isDrawing=true;
+  const p=xy(e);
+  activePts=[p];
+  activeStrokeKey=myId+'_'+Date.now();
+  localDot(p[0]*W(), p[1]*H(), tool==='erase'?penSize*4:penSize, tool==='erase');
+  liveRef.child(myId).set({ k:activeStrokeKey, c:penColor, s:tool==='erase'?penSize*4:penSize, e:tool==='erase'?1:0, p:[p] });
+}
+
+function onMove(e){
+  const p=xy(e);
+  sendCursor(p);
+  if(!isDrawing) return;
+  const prev=activePts[activePts.length-1];
+  activePts.push(p);
+  localSeg(prev[0]*W(), prev[1]*H(), p[0]*W(), p[1]*H(), tool==='erase'?penSize*4:penSize, tool==='erase');
+  const now=Date.now();
+  if(now-liveTick>50){ liveTick=now; liveRef.child(myId).update({p:activePts}); }
+}
+
+function onUp(){
+  if(!isDrawing||activePts.length===0) return;
+  isDrawing=false;
+  const key=activeStrokeKey;
+  strokesRef.child(key).set({ c:penColor, s:tool==='erase'?penSize*4:penSize, e:tool==='erase'?1:0, p:activePts, owner:myId });
+  myStrokeKeys.push(key);
+  updateUndoBtn();
+  liveRef.child(myId).remove();
+  activeStrokeKey=null; activePts=[];
+}
+
+function localDot(x,y,sz,erase){
+  ctx.save();
+  ctx.globalCompositeOperation=erase?'destination-out':'source-over';
+  ctx.fillStyle=erase?'rgba(0,0,0,1)':penColor;
+  ctx.beginPath(); ctx.arc(x,y,sz/2,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function localSeg(x1,y1,x2,y2,sz,erase){
+  ctx.save();
+  ctx.globalCompositeOperation=erase?'destination-out':'source-over';
+  ctx.strokeStyle=erase?'rgba(0,0,0,1)':penColor;
+  ctx.lineWidth=sz; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.restore();
+}
+
+function paintStroke(s){
+  if(!s||!s.p||!s.p.length) return;
+  const pts=s.p, erase=!!s.e, col=s.c||'#1a1a1a', sz=s.s||5;
+  const w=W(), h=H();
+  ctx.save();
+  ctx.globalCompositeOperation=erase?'destination-out':'source-over';
+  if(pts.length===1){
+    ctx.fillStyle=erase?'rgba(0,0,0,1)':col;
+    ctx.beginPath(); ctx.arc(pts[0][0]*w, pts[0][1]*h, sz/2, 0, Math.PI*2); ctx.fill();
+  } else {
+    ctx.strokeStyle=erase?'rgba(0,0,0,1)':col;
+    ctx.lineWidth=sz; ctx.lineCap='round'; ctx.lineJoin='round';
+    ctx.beginPath(); ctx.moveTo(pts[0][0]*w, pts[0][1]*h);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0]*w, pts[i][1]*h);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function redrawAll(){
+  fillWhite();
+  Object.keys(strokeMap).sort().forEach(k => paintStroke(strokeMap[k]));
+  Object.keys(liveMap).forEach(uid => { if(uid!==myId) paintStroke(liveMap[uid]); });
+}
+
+// =========================================================
+// UNDO
+// =========================================================
+function undoLast(){
+  if(!myStrokeKeys.length) return;
+  strokesRef.child(myStrokeKeys.pop()).remove();
+  updateUndoBtn();
+}
+function updateUndoBtn(){ document.getElementById('btn-undo').disabled=myStrokeKeys.length===0; }
+
+// =========================================================
+// FIREBASE LISTENERS
+// =========================================================
+function initListeners(){
+  db.ref('.info/connected').on('value', snap => {
+    document.getElementById('conn-dot').classList.toggle('on', !!snap.val());
+  });
+
+  strokesRef.on('value', snap => {
+    const m={};
+    snap.forEach(c => { m[c.key]=c.val(); });
+    strokeMap=m; redrawAll();
+  });
+
+  liveRef.on('child_added',   s => { if(s.key!==myId){ liveMap[s.key]=s.val(); redrawAll(); }});
+  liveRef.on('child_changed', s => { if(s.key!==myId){ liveMap[s.key]=s.val(); redrawAll(); }});
+  liveRef.on('child_removed', s => { delete liveMap[s.key]; redrawAll(); });
+
+  usersRef.on('value', snap => {
+    // Update header avatars
+    const stack=document.getElementById('user-stack');
+    stack.innerHTML='';
+    const panelList=document.getElementById('user-panel-list');
+    panelList.innerHTML='';
+    snap.forEach(child => {
+      const u=child.val(), uid=child.key;
+      // Mini avatar in header
+      const d=document.createElement('div');
+      d.className='mini-av'; d.title=u.name||''; d.textContent=u.avatar||'👤';
+      stack.appendChild(d);
+      // People panel row
+      const row=document.createElement('div');
+      row.className='up-user';
+      if(uid===myId){
+        row.innerHTML=`<span class="up-av">${u.avatar||'👤'}</span><span class="up-name">${u.name||'?'}</span><span class="up-you">You</span>`;
+      } else {
+        const safeName = (u.name||'?').replace(/\\/g,'').replace(/'/g,'').replace(/"/g,'');
+        row.innerHTML=`<span class="up-av">${u.avatar||'👤'}</span><span class="up-name">${u.name||'?'}</span><button class="up-kick" onclick="kickUser('${uid}','${safeName}')">Remove</button>`;
+      }
+      panelList.appendChild(row);
+    });
+  });
+
+  cursorsRef.on('child_added',   s => { if(s.key!==myId) mkCursor(s.key,s.val()); });
+  cursorsRef.on('child_changed', s => { if(s.key!==myId) mvCursor(s.key,s.val()); });
+  cursorsRef.on('child_removed', s => rmCursor(s.key));
+
+  // Kick listener — watch for my ID being kicked
+  kickRef.child(myId).on('value', snap => {
+    if(snap.val()){
+      showToast('You were removed from the room.');
+      setTimeout(() => leaveRoom(), 1500);
+    }
+  });
+
+  base.child('clear').on('value', snap => {
+    if(snap.val()){ strokeMap={}; liveMap={}; myStrokeKeys=[]; updateUndoBtn(); redrawAll(); }
+  });
+}
+
+// =========================================================
+// CURSORS
+// =========================================================
+function sendCursor(p){
+  const now=Date.now(); if(now-cursorTick<60) return; cursorTick=now;
+  myCursorRef.set({x:p[0],y:p[1],name:myName,avatar:myAv});
+}
+function mkCursor(uid,d){
+  if(rcursors[uid]){mvCursor(uid,d);return;}
+  const el=document.createElement('div'); el.className='rcursor';
+  el.innerHTML=`<div class="rcursor-dot" style="background:hsl(${strHue(uid)},65%,50%)"></div><div class="rcursor-label">${d.avatar||''} ${d.name||'?'}</div>`;
+  document.getElementById('canvas-wrap').appendChild(el);
+  rcursors[uid]=el; posCursor(uid,d);
+}
+function mvCursor(uid,d){ if(!rcursors[uid])mkCursor(uid,d); posCursor(uid,d); }
+function posCursor(uid,d){
+  const el=rcursors[uid]; if(!el) return;
+  const wrap=document.getElementById('canvas-wrap');
+  el.style.left=(d.x*wrap.clientWidth)+'px'; el.style.top=(d.y*wrap.clientHeight)+'px';
+}
+function rmCursor(uid){ if(rcursors[uid]){rcursors[uid].remove();delete rcursors[uid];} }
+function strHue(s){let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))&0xffff;return h%360;}
+
+// =========================================================
+// TOOLS
+// =========================================================
+function setTool(t){
+  tool=t;
+  document.getElementById('btn-draw').classList.toggle('active',t==='draw');
+  document.getElementById('btn-erase').classList.toggle('active',t==='erase');
+  canvas.classList.toggle('erase',t==='erase');
+}
+function setColor(el){
+  penColor=el.dataset.c;
+  document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('active'));
+  el.classList.add('active');
+  if(tool==='erase') setTool('draw');
+}
+function setCustom(val){
+  penColor=val;
+  document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('active'));
+  if(tool==='erase') setTool('draw');
+}
+function setSize(v){ penSize=parseInt(v); document.getElementById('sz-label').textContent=v+'px'; }
+function clearBoard(){
+  if(!confirm('Clear the board for everyone?')) return;
+  strokesRef.remove(); liveRef.remove();
+  base.child('clear').set(firebase.database.ServerValue.TIMESTAMP);
+  myStrokeKeys=[]; updateUndoBtn();
+}
+
+// ── SHARE ──
+function shareLobbyRoom() {
+  // Share from lobby - uses last room if available
+  const name = document.getElementById('share-room-name').textContent;
+  if (!name) return;
+  const url = window.location.origin + window.location.pathname + '?room=' + encodeURIComponent(name);
+  if (navigator.share) {
+    navigator.share({ title: 'Join my Sketchroom', text: 'Come draw with me in "' + name + '"!', url }).catch(() => {});
+  } else {
+    navigator.clipboard && navigator.clipboard.writeText(url).then(() => showToast('Link copied!'));
+  }
+}
+
+function shareRoom() {
+  const url = window.location.origin + window.location.pathname + '?room=' + encodeURIComponent(ROOM);
+  if (navigator.share) {
+    navigator.share({
+      title: 'Join my Sketchroom',
+      text: 'Come draw with me in "' + ROOM + '"!',
+      url: url
+    }).catch(() => {});
+  } else {
+    navigator.clipboard && navigator.clipboard.writeText(url).then(() => {
+      showToast('Link copied!');
+    });
+  }
+}
+
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js');
+  });
+}
+</script>
+</body>
+</html>
