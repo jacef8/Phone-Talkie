@@ -3,6 +3,14 @@ const fs   = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { AccessToken } = require('livekit-server-sdk');
+
+// ── LIVEKIT CONFIG (set these in Railway → Variables) ──
+// Mints short-lived access tokens so GroundLink clients can join a LiveKit room.
+// This is the token-minting endpoint from the voice spec (§4/§7). Keep secret
+// in env — never hardcode the API secret.
+const LIVEKIT_API_KEY    = process.env.LIVEKIT_API_KEY    || '';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
 
 // ── R2 CONFIG ──
 const R2_ACCOUNT_ID = 'a4e243405b2594de2724c549fb0f8ebc';
@@ -88,7 +96,40 @@ function handleMessages(res) {
   res.end(JSON.stringify(recentMessages));
 }
 
+// ── POST /voice-token ──
+// Body: { room, identity, name } → { token }. Used by the GroundLink voice bar
+// to join a LiveKit room. CORS-open so the GroundLink (Tracker) origin can call it.
+function handleVoiceToken(req, res) {
+  const send = (code, obj) => {
+    res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(obj));
+  };
+  if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    return send(500, { error: 'LiveKit not configured (set LIVEKIT_API_KEY / LIVEKIT_API_SECRET)' });
+  }
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('end', async () => {
+    try {
+      const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+      const room = (body.room || '').toString().trim();
+      const identity = (body.identity || '').toString().trim();
+      const name = (body.name || identity).toString().trim();
+      if (!room || !identity) return send(400, { error: 'room and identity are required' });
+
+      const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity, name, ttl: '2h' });
+      at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
+      const token = await at.toJwt();
+      send(200, { token });
+    } catch (e) {
+      console.error('[CRASH] voice-token error:', e);
+      send(500, { error: e.message });
+    }
+  });
+}
+
 const server = http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url.startsWith('/voice-token')) return handleVoiceToken(req, res);
   if (req.method === 'POST' && req.url.startsWith('/upload')) return handleUpload(req, res);
   if (req.method === 'GET' && req.url.startsWith('/messages')) return handleMessages(res);
   if (req.method === 'GET' && req.url.startsWith('/audio/')) return handleAudioProxy(req, res);
